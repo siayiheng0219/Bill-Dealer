@@ -807,20 +807,20 @@ function updateStaticText() {
 
 // ─── Receipt Scanner (Gemini AI + Manual fallback) ──
 
-// Persist Gemini API key in localStorage
+// Persist Gemini API key in localStorage (also check key used by reference site)
 const GEMINI_KEY_STORAGE = 'bill-dealer-gemini-key';
 
+// ⚠️ No default key — user enters their own via the scanner modal UI.
+// The key is stored ONLY in your browser's localStorage, never in source code.
+
 function getGeminiApiKey() {
-    return localStorage.getItem(GEMINI_KEY_STORAGE) || '';
+    return localStorage.getItem(GEMINI_KEY_STORAGE)
+        || localStorage.getItem('gemini_api_key')
+        || '';
 }
 
 function saveGeminiApiKey(key) {
     localStorage.setItem(GEMINI_KEY_STORAGE, key.trim());
-}
-
-// Load saved key on init
-if (getGeminiApiKey()) {
-    // Will populate in openReceiptModal
 }
 
 $('#scanReceiptBtn').addEventListener('click', openReceiptModal);
@@ -992,32 +992,30 @@ async function runGeminiScan(apiKey, imageDataUrl) {
     $('#manualEntrySection').classList.add('hidden');
 
     try {
-        // Extract base64 data (remove "data:image/jpeg;base64," prefix)
-        const base64Data = imageDataUrl.split(',')[1];
+        // Strip the data URL prefix, keep only base64
+        const base64Data = imageDataUrl.replace(/^data:image\/\w+;base64,/, '');
 
         const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{
-                        parts: [
-                            {
-                                text: `Analyze this receipt image. Extract ALL line items with their names and prices.
-Return ONLY a valid JSON array of objects with "desc" (item name) and "amount" (number, in the receipt's currency).
-If you can detect a total at the bottom, include it as the last item with desc "TOTAL".
-Example format: [{"desc":"Coffee","amount":4.50},{"desc":"Sandwich","amount":8.00}]
-If you cannot read anything, return an empty array [].
-IMPORTANT: Return ONLY the raw JSON array, no markdown, no explanation.`
-                            },
-                            {
-                                inlineData: {
-                                    mimeType: 'image/jpeg',
-                                    data: base64Data
-                                }
+                        parts: [{
+                            text: `You are a precise restaurant receipt OCR expert. Analyze this receipt image carefully:
+
+1. Extract ALL line items with their names and individual prices.
+2. Identify global amounts: subtotal, tax/SST, service charge, grand total (final amount paid).
+3. Determine tax type: if the sum of all item prices ≈ grand total, tax is inclusive (isTaxInclusive=true); otherwise isTaxInclusive=false.
+4. Output STRICT JSON: {"isTaxInclusive":true,"subtotal":95,"tax":5,"serviceCharge":9.5,"grandTotal":109.5,"items":[{"name":"Item Name","price":38.00}]}
+No markdown, no \`\`\`json, no explanation — ONLY the raw JSON object.`
+                        }, {
+                            inlineData: {
+                                mimeType: 'image/jpeg',
+                                data: base64Data
                             }
-                        ]
+                        }]
                     }],
                     generationConfig: {
                         temperature: 0.1,
@@ -1030,42 +1028,71 @@ IMPORTANT: Return ONLY the raw JSON array, no markdown, no explanation.`
         $('#aiLoading').classList.add('hidden');
 
         if (!response.ok) {
-            const err = await response.json();
-            throw new Error(err.error?.message || `API error ${response.status}`);
-        }
-
-        const data = await response.json();
-        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
-
-        // Parse JSON — clean up markdown wrappers if present
-        let jsonStr = rawText.trim();
-        jsonStr = jsonStr.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
-        const items = JSON.parse(jsonStr);
-
-        if (!Array.isArray(items) || items.length === 0) {
-            showToast('AI could not detect any items. Try manual entry.', 'info');
+            const errText = await response.text().catch(() => '');
+            const msg = `Gemini API error (${response.status}): ${errText.slice(0, 200)}`;
+            console.error('[ReceiptScan]', msg);
+            showToast('AI scan failed — try manual entry below', 'error');
             $('#scanActions').classList.remove('hidden');
             return;
         }
 
-        // Display AI results
-        displayAiResults(items);
+        const data = await response.json();
+        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+        // Robust JSON parsing — try direct parse, then regex extraction
+        let result;
+        try {
+            result = JSON.parse(rawText.trim());
+        } catch {
+            // Fallback: extract the first { ... } JSON object from the text
+            const match = rawText.match(/\{[\s\S]*\}/);
+            if (!match) {
+                console.error('[ReceiptScan] Parse failed, raw:', rawText?.slice(0, 300));
+                showToast('AI response could not be parsed. Try manual entry.', 'error');
+                $('#scanActions').classList.remove('hidden');
+                return;
+            }
+            result = JSON.parse(match[0]);
+        }
+
+        const items = result.items || [];
+        if (!Array.isArray(items) || items.length === 0) {
+            showToast('No items detected in receipt. Try manual entry.', 'info');
+            $('#scanActions').classList.remove('hidden');
+            return;
+        }
+
+        // Build receipt summary
+        const receiptMeta = {
+            subtotal: result.subtotal || 0,
+            tax: result.tax || 0,
+            serviceCharge: result.serviceCharge || 0,
+            grandTotal: result.grandTotal || 0,
+            isTaxInclusive: result.isTaxInclusive || false
+        };
+
+        // Map items to our format { desc, amount }
+        const mappedItems = items.map(it => ({
+            desc: it.name || it.desc || 'Item',
+            amount: it.price || it.amount || 0
+        }));
+
+        displayAiResults(mappedItems, receiptMeta);
     } catch (err) {
         $('#aiLoading').classList.add('hidden');
-        console.error('Gemini scan error:', err);
-        showToast('AI scan failed: ' + (err.message || 'Unknown error') + '. Try manual entry.', 'error');
+        console.error('[ReceiptScan] Error:', err.message);
+        showToast('AI scan failed — try manual entry', 'error');
         $('#scanActions').classList.remove('hidden');
     }
 }
 
-function displayAiResults(items) {
+function displayAiResults(items, receiptMeta = null) {
     const container = $('#aiResult');
-    const nonTotalItems = items.filter(i => i.desc.toUpperCase() !== 'TOTAL');
-    const totalItem = items.find(i => i.desc.toUpperCase() === 'TOTAL');
-    const sum = nonTotalItems.reduce((s, i) => s + (i.amount || 0), 0);
+    const sum = items.reduce((s, i) => s + (i.amount || 0), 0);
 
-    let html = '<h4>🤖 AI Extracted Items (tap to edit)</h4>';
-    nonTotalItems.forEach((item, idx) => {
+    let html = '<h4>🤖 AI Extracted Items (edit if needed)</h4>';
+
+    items.forEach((item, idx) => {
         html += `
             <div class="ai-result-item" data-index="${idx}">
                 <input type="text" class="text-input ai-edit-desc" value="${escapeHtml(item.desc)}" style="flex:2;padding:6px 8px;font-size:0.82rem;">
@@ -1073,9 +1100,29 @@ function displayAiResults(items) {
                 <span class="ai-item-del" data-index="${idx}">×</span>
             </div>`;
     });
+
+    // Show receipt breakdown if available
+    if (receiptMeta && (receiptMeta.subtotal || receiptMeta.grandTotal)) {
+        html += '<div class="ai-breakdown">';
+        if (receiptMeta.subtotal) {
+            html += `<div class="ai-breakdown-row"><span>Subtotal</span><span>${formatCurrency(receiptMeta.subtotal, state.baseCurrency)}</span></div>`;
+        }
+        if (receiptMeta.tax) {
+            html += `<div class="ai-breakdown-row"><span>Tax / SST</span><span>${formatCurrency(receiptMeta.tax, state.baseCurrency)}</span></div>`;
+        }
+        if (receiptMeta.serviceCharge) {
+            html += `<div class="ai-breakdown-row"><span>Service Charge</span><span>${formatCurrency(receiptMeta.serviceCharge, state.baseCurrency)}</span></div>`;
+        }
+        html += `<div class="ai-breakdown-row" style="font-weight:700;border-top:1px solid var(--border);padding-top:6px;"><span>Grand Total</span><span>${formatCurrency(receiptMeta.grandTotal || sum, state.baseCurrency)}</span></div>`;
+        if (receiptMeta.isTaxInclusive) {
+            html += '<div class="ai-breakdown-note">📌 Tax is included in item prices</div>';
+        }
+        html += '</div>';
+    }
+
     html += `
         <div class="ai-result-total">
-            <span>AI Total</span>
+            <span>Items Sum</span>
             <strong id="aiResultTotal">${formatCurrency(sum, state.baseCurrency)}</strong>
         </div>`;
 
@@ -1084,7 +1131,7 @@ function displayAiResults(items) {
     $('#receiptPayerArea').classList.remove('hidden');
 
     // Store items for later retrieval on "Add" click
-    container._aiItems = nonTotalItems;
+    container._aiItems = items;
 
     // Update total on edit
     container.querySelectorAll('.ai-edit-amount').forEach(inp => {

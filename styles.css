@@ -944,6 +944,29 @@ body {
 
 .ai-result-total strong { color: var(--primary); font-size: 1rem; }
 
+.ai-breakdown {
+    margin-top: 12px;
+    padding: 12px;
+    background: #f0fdf4;
+    border-radius: var(--radius-xs);
+    border: 1px solid #bbf7d0;
+}
+
+.ai-breakdown-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.82rem;
+    padding: 3px 0;
+    color: var(--text-secondary);
+}
+
+.ai-breakdown-note {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-top: 6px;
+    font-style: italic;
+}
+
 /* === Utility === */
 .hidden { display: none !important; }
 
