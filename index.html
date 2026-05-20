@@ -180,7 +180,7 @@
             <div class="modal modal-bottom-sheet">
                 <div class="modal-handle"></div>
                 <div class="modal-header">
-                    <h3>📸 Receipt Scanner</h3>
+                    <h3>📸 Receipt Scanner <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">OCR → AI</span></h3>
                     <button class="modal-close" id="closeReceiptModal">&times;</button>
                 </div>
                 <div class="modal-body">
@@ -195,7 +195,7 @@
                         <div class="upload-placeholder">
                             <span class="upload-icon">📷</span>
                             <p>Tap to take photo or upload</p>
-                            <p class="upload-hint">Snap a receipt → AI extracts items automatically</p>
+                            <p class="upload-hint">OCR reads text → AI structures it → add to bill</p>
                         </div>
                         <input type="file" id="receiptImageInput" accept="image/*" class="hidden">
                     </label>
@@ -235,6 +235,7 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

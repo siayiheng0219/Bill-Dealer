@@ -805,13 +805,9 @@ function updateStaticText() {
     $('#clearBtn').textContent = _('clear');
 }
 
-// ─── Receipt Scanner (Gemini AI + Manual fallback) ──
+// ─── Receipt Scanner (Tesseract.js OCR → Gemini AI → structured JSON) ──
 
-// Persist Gemini API key in localStorage (also check key used by reference site)
 const GEMINI_KEY_STORAGE = 'bill-dealer-gemini-key';
-
-// ⚠️ No default key — user enters their own via the scanner modal UI.
-// The key is stored ONLY in your browser's localStorage, never in source code.
 
 function getGeminiApiKey() {
     return localStorage.getItem(GEMINI_KEY_STORAGE)
@@ -848,7 +844,6 @@ $('#geminiApiKey').addEventListener('input', () => {
 function openReceiptModal() {
     if (state.members.length === 0) { showToast(_('selectMembers'), 'error'); return; }
     $('#receiptModal').classList.remove('hidden');
-    // Load saved API key
     $('#geminiApiKey').value = getGeminiApiKey();
     resetReceiptModal();
     renderPayerSelect();
@@ -859,18 +854,17 @@ function closeReceiptModal() {
     resetReceiptModal();
 }
 
-let receiptImageDataUrl = null; // Store the resized receipt image for AI scanning
+let receiptImageDataUrl = null;
 
 function resetReceiptModal() {
     $('#receiptPreview').src = '';
     $('#receiptPreviewWrapper').classList.add('hidden');
-    // Restore upload placeholder
     const ph = $('#uploadArea').querySelector('.upload-placeholder');
     ph.classList.remove('hidden');
     ph.innerHTML = `
         <span class="upload-icon">📷</span>
         <p>Tap to take photo or upload</p>
-        <p class="upload-hint">Snap a receipt → AI extracts items automatically</p>`;
+        <p class="upload-hint">OCR reads text → AI structures it → add to bill</p>`;
     $('#scanActions').classList.add('hidden');
     $('#aiLoading').classList.add('hidden');
     $('#aiResult').classList.add('hidden');
@@ -882,8 +876,7 @@ function resetReceiptModal() {
     clearManualItems();
 }
 
-// Upload — label's "for" attribute handles file picker natively (works on all browsers)
-// Drag & drop as bonus
+// Upload — label's "for" attribute handles file picker natively
 $('#uploadArea').addEventListener('dragover', (e) => { e.preventDefault(); $('#uploadArea').classList.add('dragover'); });
 $('#uploadArea').addEventListener('dragleave', () => $('#uploadArea').classList.remove('dragover'));
 $('#uploadArea').addEventListener('drop', (e) => {
@@ -897,7 +890,6 @@ $('#receiptImageInput').addEventListener('change', (e) => {
 });
 
 function processReceiptImage(file) {
-    // Show loading feedback
     $('#uploadArea').querySelector('.upload-placeholder').innerHTML = `
         <span class="upload-icon">⏳</span>
         <p>Processing image...</p>`;
@@ -905,22 +897,16 @@ function processReceiptImage(file) {
     const reader = new FileReader();
     reader.onerror = () => {
         showToast('Failed to read image file', 'error');
-        $('#uploadArea').querySelector('.upload-placeholder').innerHTML = `
-            <span class="upload-icon">📷</span>
-            <p>Tap to take photo or upload</p>
-            <p class="upload-hint">Snap a receipt → AI extracts items automatically</p>`;
+        resetUploadPlaceholder();
     };
     reader.onload = (ev) => {
         const img = new Image();
         img.onerror = () => {
             showToast('Failed to load image — try a different format', 'error');
-            $('#uploadArea').querySelector('.upload-placeholder').innerHTML = `
-                <span class="upload-icon">📷</span>
-                <p>Tap to take photo or upload</p>
-                <p class="upload-hint">Snap a receipt → AI extracts items automatically</p>`;
+            resetUploadPlaceholder();
         };
         img.onload = () => {
-            // Resize to max 1024px for performance
+            // Resize to max 1024px for OCR performance
             const maxW = 1024;
             let w = img.width, h = img.height;
             if (w > maxW) { h = h * (maxW / w); w = maxW; }
@@ -935,7 +921,6 @@ function processReceiptImage(file) {
             $('#receiptPreviewWrapper').classList.remove('hidden');
             $('#uploadArea').querySelector('.upload-placeholder').classList.add('hidden');
 
-            // Show scan actions (AI or manual)
             $('#scanActions').classList.remove('hidden');
             $('#manualEntrySection').classList.add('hidden');
             $('#receiptPayerArea').classList.add('hidden');
@@ -946,13 +931,19 @@ function processReceiptImage(file) {
     reader.readAsDataURL(file);
 }
 
-// AI Scan button — 3-tier fallback: Server → Local Key → Manual
+function resetUploadPlaceholder() {
+    $('#uploadArea').querySelector('.upload-placeholder').innerHTML = `
+        <span class="upload-icon">📷</span>
+        <p>Tap to take photo or upload</p>
+        <p class="upload-hint">OCR reads text → AI structures it → add to bill</p>`;
+}
+
+// ─── Scan: Tesseract OCR → Gemini (text-only) ──
 $('#aiScanBtn2').addEventListener('click', () => {
     if (!receiptImageDataUrl) {
         showToast('Please upload a receipt image first', 'error');
         return;
     }
-    // Save any key entered (used as fallback)
     const localKey = $('#geminiApiKey').value.trim();
     if (localKey) saveGeminiApiKey(localKey);
     runReceiptScan(receiptImageDataUrl, localKey);
@@ -981,10 +972,7 @@ $('#retakePhotoBtn').addEventListener('click', () => {
     clearManualItems();
 });
 
-// ─── Receipt Scanner — 3-Tier Fallback ──────
-// Tier 1: Vercel /api/split-receipt (server key, FREE, 10s timeout)
-// Tier 2: Local Gemini key (user's own, FREE, 10s timeout)
-// Tier 3: Manual entry
+// ─── 3-Tier Pipeline: OCR → Server | OCR → Local Key | Manual ──
 
 async function runReceiptScan(imageDataUrl, localKey) {
     $('#scanActions').classList.add('hidden');
@@ -992,45 +980,84 @@ async function runReceiptScan(imageDataUrl, localKey) {
     $('#aiResult').classList.add('hidden');
     $('#manualEntrySection').classList.add('hidden');
 
-    // Update loading text to show which tier we're on
     const loadingText = $('#aiLoading p');
 
-    // ── Tier 1: Try server proxy ──
-    loadingText.textContent = 'Tier 1: Trying server proxy...';
-    const serverResult = await tryServerScan(imageDataUrl);
+    // ── Step 0: Tesseract OCR (client-side, free) ──
+    loadingText.textContent = '🔍 OCR: Reading text from image...';
+    let ocrText;
+    try {
+        ocrText = await runTesseractOCR(imageDataUrl);
+        if (!ocrText || !ocrText.trim()) {
+            throw new Error('No text detected');
+        }
+        console.log('[ReceiptScan] OCR result:', ocrText.slice(0, 200));
+    } catch (err) {
+        console.warn('[ReceiptScan] OCR failed:', err.message);
+        $('#aiLoading').classList.add('hidden');
+        showToast('OCR could not read the image — try a clearer photo or enter manually', 'info');
+        $('#manualEntrySection').classList.remove('hidden');
+        $('#receiptPayerArea').classList.remove('hidden');
+        initManualItems();
+        return;
+    }
+
+    // ── Tier 1: Server proxy (text → Gemini) ──
+    loadingText.textContent = '🤖 Tier 1: Server AI processing...';
+    const serverResult = await tryServerScan(ocrText);
     if (serverResult) {
         displayScanResult(serverResult);
         return;
     }
 
-    // ── Tier 2: Try local Gemini key ──
+    // ── Tier 2: Local Gemini key (text → Gemini) ──
     if (localKey) {
-        loadingText.textContent = 'Tier 2: Trying your Gemini key...';
-        const geminiResult = await tryGeminiScan(imageDataUrl, localKey);
+        loadingText.textContent = '🤖 Tier 2: Your Gemini key...';
+        const geminiResult = await tryGeminiScan(ocrText, localKey);
         if (geminiResult) {
             displayScanResult(geminiResult);
             return;
         }
     }
 
-    // ── Tier 3: Both failed — offer manual entry ──
+    // ── Tier 3: Manual entry ──
     $('#aiLoading').classList.add('hidden');
-    showToast('Auto-scan unavailable — enter items manually below', 'info');
+    showToast('AI unavailable — enter items manually below', 'info');
     $('#manualEntrySection').classList.remove('hidden');
     $('#receiptPayerArea').classList.remove('hidden');
     initManualItems();
 }
 
-// Tier 1: Call Vercel serverless function
-async function tryServerScan(imageDataUrl) {
+// ─── Tesseract.js OCR (client-side, no API cost) ───
+
+async function runTesseractOCR(imageDataUrl) {
+    const worker = await Tesseract.createWorker('eng+chi_sim', 1, {
+        logger: (m) => {
+            if (m.status === 'recognizing text') {
+                const pct = Math.round(m.progress * 100);
+                const loadingText = $('#aiLoading p');
+                if (loadingText) loadingText.textContent = `🔍 OCR: Reading text... ${pct}%`;
+            }
+        }
+    });
+    try {
+        const { data: { text } } = await worker.recognize(imageDataUrl);
+        return text;
+    } finally {
+        await worker.terminate();
+    }
+}
+
+// ─── Tier 1: Server proxy (text → Gemini) ───
+
+async function tryServerScan(ocrText) {
     try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000); // 10s like TravelSplit
+        const timeout = setTimeout(() => controller.abort(), 15000);
 
         const res = await fetch('/api/split-receipt', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image: imageDataUrl }),
+            body: JSON.stringify({ text: ocrText }),
             signal: controller.signal
         });
         clearTimeout(timeout);
@@ -1055,13 +1082,12 @@ async function tryServerScan(imageDataUrl) {
     }
 }
 
-// Tier 2: Call Gemini directly with user's key
-async function tryGeminiScan(imageDataUrl, apiKey) {
+// ─── Tier 2: Direct Gemini call (text-only, minimal tokens) ───
+
+async function tryGeminiScan(ocrText, apiKey) {
     try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000);
-
-        const base64Data = imageDataUrl.replace(/^data:image\/\w+;base64,/, '');
+        const timeout = setTimeout(() => controller.abort(), 15000);
 
         const res = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
@@ -1070,18 +1096,21 @@ async function tryGeminiScan(imageDataUrl, apiKey) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{
-                        parts: [
-                            {
-                                text: `你是一个精准的餐厅小票收据 OCR 专家。请仔细分析这张图片，执行以下任务：
+                        parts: [{
+                            text: `You are a precise receipt parser. Given OCR-extracted text from a restaurant receipt, extract structured data.
 
-1. 提取小票上所有消费菜品/单项的名称和单价。
-2. 识别出小票的全局金额：Subtotal（小计）、Tax / SST（税费）、Service Charge（服务费）、Grand Total（最终实付总额）。
-3. 判断价内税还是价外税：所有菜品单价之和≈Grand Total 则为价内税，isTaxInclusive=true；否则 isTaxInclusive=false。
-4. 输出 JSON 结构严格为：{"isTaxInclusive":true,"subtotal":95,"tax":5,"serviceCharge":9.5,"grandTotal":109.5,"items":[{"name":"菜品名","price":38.00}]}
-不要包含任何 markdown、\`\`\`json 或废话。`
-                            },
-                            { inlineData: { mimeType: 'image/jpeg', data: base64Data } }
-                        ]
+Rules:
+1. Extract every line item with its name and unit price.
+2. Identify: Subtotal, Tax/SST, Service Charge, Grand Total.
+3. If sum of item prices ≈ Grand Total, set isTaxInclusive=true; otherwise false.
+4. Output ONLY valid JSON — no markdown, no code fences, no commentary.
+
+JSON schema:
+{"isTaxInclusive":true,"subtotal":95,"tax":5,"serviceCharge":9.5,"grandTotal":109.5,"items":[{"name":"Item Name","price":38.00}]}
+
+OCR Text:
+${ocrText}`
+                        }]
                     }],
                     generationConfig: { temperature: 0.1, maxOutputTokens: 1024 }
                 }),
@@ -1099,7 +1128,6 @@ async function tryGeminiScan(imageDataUrl, apiKey) {
         const data = await res.json();
         const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-        // Parse JSON with regex fallback
         let result;
         try { result = JSON.parse(rawText.trim()); } catch {
             const match = rawText.match(/\{[\s\S]*\}/);
@@ -1117,7 +1145,8 @@ async function tryGeminiScan(imageDataUrl, apiKey) {
     }
 }
 
-// Display scan result (shared by Tier 1 & 2)
+// ─── Display scan result ───
+
 function displayScanResult(result) {
     $('#aiLoading').classList.add('hidden');
 
@@ -1152,7 +1181,6 @@ function displayAiResults(items, receiptMeta = null) {
             </div>`;
     });
 
-    // Show receipt breakdown if available
     if (receiptMeta && (receiptMeta.subtotal || receiptMeta.grandTotal)) {
         html += '<div class="ai-breakdown">';
         if (receiptMeta.subtotal) {
@@ -1181,10 +1209,8 @@ function displayAiResults(items, receiptMeta = null) {
     container.classList.remove('hidden');
     $('#receiptPayerArea').classList.remove('hidden');
 
-    // Store items for later retrieval on "Add" click
     container._aiItems = items;
 
-    // Update total on edit
     container.querySelectorAll('.ai-edit-amount').forEach(inp => {
         inp.addEventListener('input', () => {
             let t = 0;
@@ -1193,7 +1219,6 @@ function displayAiResults(items, receiptMeta = null) {
         });
     });
 
-    // Delete item
     container.querySelectorAll('.ai-item-del').forEach(btn => {
         btn.addEventListener('click', () => {
             btn.closest('.ai-result-item').remove();
@@ -1209,6 +1234,7 @@ function displayAiResults(items, receiptMeta = null) {
 }
 
 // ─── Add AI items as expenses ────────────────
+
 function getAiEditedItems() {
     const items = [];
     $$('#aiResult .ai-result-item').forEach(row => {
@@ -1223,10 +1249,8 @@ $('#addReceiptItemsBtn').addEventListener('click', () => {
     const payer = $('#receiptPayerSelect').value;
     if (!payer) { showToast('Select who paid', 'error'); return; }
 
-    // Try AI items first, then manual items
     let items = getAiEditedItems();
     if (items.length === 0) {
-        // Fallback to manual items
         $$('.manual-item-row').forEach(row => {
             const desc = row.querySelector('.manual-desc').value.trim();
             const amount = parseFloat(row.querySelector('.manual-amount').value);
@@ -1255,7 +1279,8 @@ $('#addReceiptItemsBtn').addEventListener('click', () => {
     showToast(`Added ${items.length} items!`, 'success');
 });
 
-// Manual item entry (fallback)
+// ─── Manual item entry (Tier 3 fallback) ────
+
 function initManualItems() {
     clearManualItems();
     addManualItemRow();
@@ -1294,6 +1319,7 @@ function updateManualTotal() {
 }
 
 // ─── Keyboard shortcut ───────────────────────
+
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('#receiptModal').classList.contains('hidden')) {
         closeReceiptModal();
@@ -1315,4 +1341,4 @@ function init() {
 
 init();
 
-console.log('🧾 Bill Dealer v2 ready — Mobile-first, Settle tracking, Receipt Scanner');
+console.log('🧾 Bill Dealer v2 ready — Tesseract OCR + Gemini AI + Manual fallback');

@@ -1,22 +1,26 @@
 // ============================================================
-//  Vercel Edge Function — Receipt Scanner
-//  Storage: Vercel Blob (persistent receipt images)
-//  AI:      Gemini 2.5 Flash (raw fetch, no SDK overhead)
-//  FREE:    1.5K Gemini req/day + Vercel Blob free tier
+//  Vercel Edge Function — Receipt Text → Structured JSON
+//  OCR:   Tesseract.js (client-side, zero API cost)
+//  AI:    Gemini 2.5 Flash (text-only, minimal tokens)
+//  FREE:  1.5K Gemini req/day — text is far cheaper than images
 // ============================================================
-
-import { put } from '@vercel/blob';
 
 const GEMINI_KEY = process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
-const PROMPT = `你是一个精准的餐厅小票收据 OCR 专家。请仔细分析这张图片，执行以下任务：
+const PROMPT = `You are a precise receipt parser. Given the OCR-extracted text from a restaurant receipt below, extract structured data.
 
-1. 提取小票上所有消费菜品/单项的名称和单价。
-2. 识别出小票的全局金额：Subtotal（小计）、Tax / SST（税费）、Service Charge（服务费）、Grand Total（最终实付总额）。
-3. 判断价内税还是价外税：所有菜品单价之和≈Grand Total 则为价内税，isTaxInclusive=true；否则 isTaxInclusive=false。
-4. 输出 JSON 结构严格为：{"isTaxInclusive":true,"subtotal":95,"tax":5,"serviceCharge":9.5,"grandTotal":109.5,"items":[{"name":"菜品名","price":38.00}]}
-不要包含任何 markdown、\`\`\`json 或废话。`;
+Rules:
+1. Extract every line item with its name and unit price.
+2. Identify: Subtotal, Tax/SST, Service Charge, Grand Total.
+3. If sum of item prices ≈ Grand Total, set isTaxInclusive=true; otherwise false.
+4. Output ONLY valid JSON — no markdown, no code fences, no commentary.
+
+JSON schema:
+{"isTaxInclusive":true,"subtotal":95,"tax":5,"serviceCharge":9.5,"grandTotal":109.5,"items":[{"name":"Item Name","price":38.00}]}
+
+OCR Text:
+`;
 
 const cors = {
     'Access-Control-Allow-Origin': '*',
@@ -26,37 +30,17 @@ const cors = {
 
 export async function POST(req) {
     try {
-        const { image } = await req.json();
-        if (!image) return Response.json({ error: 'No image' }, { status: 400, headers: cors });
+        const { text } = await req.json();
+        if (!text || !text.trim()) return Response.json({ error: 'No OCR text provided' }, { status: 400, headers: cors });
         if (!GEMINI_KEY) return Response.json({ error: 'Server key not configured' }, { status: 503, headers: cors });
 
-        const base64 = image.replace(/^data:image\/\w+;base64,/, '');
-        const imageBuffer = Buffer.from(base64, 'base64');
-
-        // 1. Store receipt in Vercel Blob (public, persistent)
-        let blobUrl = null;
-        try {
-            const blob = await put(`receipts/${Date.now()}.jpg`, imageBuffer, {
-                access: 'public',
-                addRandomSuffix: true,
-                contentType: 'image/jpeg',
-            });
-            blobUrl = blob.url;
-        } catch (e) {
-            console.warn('[split-receipt] Blob storage skipped:', e.message);
-            // Non-fatal — continue without blob storage
-        }
-
-        // 2. Call Gemini for OCR
+        // Call Gemini with text only (much cheaper than image)
         const geminiRes = await fetch(`${GEMINI_URL}?key=${GEMINI_KEY}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 contents: [{
-                    parts: [
-                        { text: PROMPT },
-                        { inlineData: { mimeType: 'image/jpeg', data: base64 } },
-                    ],
+                    parts: [{ text: PROMPT + text }],
                 }],
                 generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
             }),
@@ -74,7 +58,7 @@ export async function POST(req) {
         const data = await geminiRes.json();
         const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-        // 3. Parse JSON (direct + regex fallback)
+        // Parse JSON (direct + regex fallback)
         let result;
         try { result = JSON.parse(rawText.trim()); } catch {
             const m = rawText.match(/\{[\s\S]*\}/);
@@ -87,8 +71,7 @@ export async function POST(req) {
             result = JSON.parse(m[0]);
         }
 
-        // 4. Return OCR result + blob URL
-        return Response.json({ ...result, blobUrl }, { status: 200, headers: cors });
+        return Response.json(result, { status: 200, headers: cors });
 
     } catch (err) {
         console.error('[split-receipt]', err.message);
