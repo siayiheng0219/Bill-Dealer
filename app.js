@@ -249,10 +249,11 @@ document.addEventListener('click', (e) => {
 
 // ─── Render All ──────────────────────────────
 function renderAll() {
+    customSplitNeedsRebuild = true;
     renderMembers();
     renderPayerSelect();
     renderParticipants();
-    renderCustomSplit();
+    renderCustomSplit(true);
     renderExpenses();
     renderSettlement();
     updateCounts();
@@ -327,11 +328,17 @@ function renderParticipants() {
             const cb = this.querySelector('input');
             cb.checked = !cb.checked;
             this.classList.toggle('checked', cb.checked);
-            if (getCurrentSplitMethod() === 'custom') renderCustomSplit();
+            if (getCurrentSplitMethod() === 'custom') {
+                customSplitNeedsRebuild = true;
+                renderCustomSplit(true);
+            }
         });
         tag.querySelector('input').addEventListener('change', function() {
             tag.classList.toggle('checked', this.checked);
-            if (getCurrentSplitMethod() === 'custom') renderCustomSplit();
+            if (getCurrentSplitMethod() === 'custom') {
+                customSplitNeedsRebuild = true;
+                renderCustomSplit(true);
+            }
         });
     });
 }
@@ -355,27 +362,47 @@ $$('.split-btn').forEach(btn => {
 });
 
 // ─── Custom Split ────────────────────────────
-function renderCustomSplit() {
+// Track whether custom split inputs need full re-render
+let customSplitNeedsRebuild = true;
+
+function renderCustomSplit(forceRebuild = false) {
     const container = $('#customSplitInputs');
-    const checked = getCheckedParticipants();
+    if (getCurrentSplitMethod() !== 'custom') return;
+
+    // In custom mode, use all members (Split Among is hidden)
+    const members = state.members;
+    if (members.length === 0) { container.innerHTML = ''; return; }
+
     const totalAmount = parseFloat($('#expenseAmount').value) || 0;
 
-    if (checked.length === 0) { container.innerHTML = ''; return; }
+    // Only rebuild DOM when participants change, not on amount change
+    if (forceRebuild || customSplitNeedsRebuild) {
+        // Save current values before rebuilding
+        const oldValues = {};
+        $$('.custom-split-input').forEach(inp => {
+            oldValues[inp.dataset.member] = inp.value;
+        });
 
-    container.innerHTML = checked.map(m => {
-        const idx = state.members.indexOf(m);
-        return `
-            <div class="custom-split-row">
-                <span class="member-label">
-                    <span class="member-avatar" style="background:${getMemberColor(idx)};width:22px;height:22px;font-size:0.65rem;">${getMemberInitial(m)}</span>
-                    ${escapeHtml(m)}
-                </span>
-                <input type="number" class="custom-split-input" data-member="${escapeHtml(m)}"
-                       placeholder="0.00" min="0" step="0.01" inputmode="decimal">
-            </div>`;
-    }).join('');
+        container.innerHTML = members.map(m => {
+            const idx = state.members.indexOf(m);
+            const savedVal = oldValues[m] || '';
+            return `
+                <div class="custom-split-row">
+                    <span class="member-label">
+                        <span class="member-avatar" style="background:${getMemberColor(idx)};width:22px;height:22px;font-size:0.65rem;">${getMemberInitial(m)}</span>
+                        ${escapeHtml(m)}
+                    </span>
+                    <input type="number" class="custom-split-input" data-member="${escapeHtml(m)}"
+                           placeholder="0.00" min="0" step="0.01" inputmode="decimal" value="${savedVal}">
+                </div>`;
+        }).join('');
+        customSplitNeedsRebuild = false;
+    }
 
-    updateCustomRemaining(totalAmount, 0);
+    // Always update remaining display
+    let sum = 0;
+    $$('.custom-split-input').forEach(inp => sum += parseFloat(inp.value) || 0);
+    updateCustomRemaining(totalAmount, sum);
 }
 
 $('#customSplitInputs').addEventListener('input', (e) => {
@@ -387,7 +414,12 @@ $('#customSplitInputs').addEventListener('input', (e) => {
 });
 
 $('#expenseAmount').addEventListener('input', () => {
-    if (getCurrentSplitMethod() === 'custom') renderCustomSplit();
+    if (getCurrentSplitMethod() === 'custom') {
+        // Just update remaining — don't rebuild inputs (preserves cursor)
+        let sum = 0;
+        $$('.custom-split-input').forEach(inp => sum += parseFloat(inp.value) || 0);
+        updateCustomRemaining(parseFloat($('#expenseAmount').value) || 0, sum);
+    }
 });
 
 function updateCustomRemaining(total, sum) {
@@ -416,8 +448,15 @@ function updateExpenseFormState() {
     $('#addExpenseBtn').disabled = !hasMembers;
 
     const isCustom = getCurrentSplitMethod() === 'custom';
+
+    // Hide "Split Among" when custom (custom inputs already list all members)
+    $('#splitAmongGroup').classList.toggle('hidden', isCustom);
+
     $('#customSplitArea').classList.toggle('hidden', !isCustom);
-    if (isCustom) renderCustomSplit();
+    if (isCustom) {
+        customSplitNeedsRebuild = true;
+        renderCustomSplit(true);
+    }
 }
 
 // ─── Expenses List ───────────────────────────
@@ -620,7 +659,12 @@ $('#expenseForm').addEventListener('submit', (e) => {
     const currency = $('#expenseCurrency').value;
     const payer = $('#payerSelect').value;
     const splitMethod = getCurrentSplitMethod();
-    const participants = getCheckedParticipants();
+
+    // In custom mode, all members are participants (Split Among is hidden)
+    // In equal mode, use checked participants
+    const participants = splitMethod === 'custom'
+        ? [...state.members]
+        : getCheckedParticipants();
 
     if (!desc) { showToast('Enter a description', 'error'); return; }
     if (!amount || amount <= 0) { showToast('Enter a valid amount', 'error'); return; }
@@ -761,14 +805,51 @@ function updateStaticText() {
     $('#clearBtn').textContent = _('clear');
 }
 
-// ─── Receipt Scanner (Photo + Manual Entry) ──
+// ─── Receipt Scanner (Gemini AI + Manual fallback) ──
+
+// Persist Gemini API key in localStorage
+const GEMINI_KEY_STORAGE = 'bill-dealer-gemini-key';
+
+function getGeminiApiKey() {
+    return localStorage.getItem(GEMINI_KEY_STORAGE) || '';
+}
+
+function saveGeminiApiKey(key) {
+    localStorage.setItem(GEMINI_KEY_STORAGE, key.trim());
+}
+
+// Load saved key on init
+if (getGeminiApiKey()) {
+    // Will populate in openReceiptModal
+}
+
 $('#scanReceiptBtn').addEventListener('click', openReceiptModal);
 $('#closeReceiptModal').addEventListener('click', closeReceiptModal);
 $('#receiptModal').addEventListener('click', (e) => { if (e.target === $('#receiptModal')) closeReceiptModal(); });
 
+// Toggle API key visibility
+$('#toggleApiKey').addEventListener('click', () => {
+    const inp = $('#geminiApiKey');
+    const btn = $('#toggleApiKey');
+    if (inp.type === 'password') {
+        inp.type = 'text';
+        btn.textContent = '🙈';
+    } else {
+        inp.type = 'password';
+        btn.textContent = '👁';
+    }
+});
+
+// Auto-save API key on input
+$('#geminiApiKey').addEventListener('input', () => {
+    saveGeminiApiKey($('#geminiApiKey').value);
+});
+
 function openReceiptModal() {
     if (state.members.length === 0) { showToast(_('selectMembers'), 'error'); return; }
     $('#receiptModal').classList.remove('hidden');
+    // Load saved API key
+    $('#geminiApiKey').value = getGeminiApiKey();
     resetReceiptModal();
     renderPayerSelect();
 }
@@ -778,12 +859,20 @@ function closeReceiptModal() {
     resetReceiptModal();
 }
 
+let receiptImageDataUrl = null; // Store the resized receipt image for AI scanning
+
 function resetReceiptModal() {
     $('#receiptPreview').src = '';
     $('#receiptPreviewWrapper').classList.add('hidden');
     $('#uploadArea').querySelector('.upload-placeholder').classList.remove('hidden');
+    $('#scanActions').classList.add('hidden');
+    $('#aiLoading').classList.add('hidden');
+    $('#aiResult').classList.add('hidden');
+    $('#aiResult').innerHTML = '';
     $('#manualEntrySection').classList.add('hidden');
+    $('#receiptPayerArea').classList.add('hidden');
     $('#receiptImageInput').value = '';
+    receiptImageDataUrl = null;
     clearManualItems();
 }
 
@@ -802,43 +891,248 @@ $('#receiptImageInput').addEventListener('change', (e) => {
 });
 
 function processReceiptImage(file) {
-    // Resize image to max 1024px wide for performance
     const reader = new FileReader();
     reader.onload = (ev) => {
         const img = new Image();
         img.onload = () => {
+            // Resize to max 1024px for performance
             const maxW = 1024;
             let w = img.width, h = img.height;
             if (w > maxW) { h = h * (maxW / w); w = maxW; }
-
             const canvas = document.createElement('canvas');
             canvas.width = w;
             canvas.height = h;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, w, h);
+            receiptImageDataUrl = canvas.toDataURL('image/jpeg', 0.7);
 
-            const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
-            $('#receiptPreview').src = resizedDataUrl;
+            $('#receiptPreview').src = receiptImageDataUrl;
             $('#receiptPreviewWrapper').classList.remove('hidden');
             $('#uploadArea').querySelector('.upload-placeholder').classList.add('hidden');
-            $('#manualEntrySection').classList.remove('hidden');
-            initManualItems();
+
+            // Show scan actions (AI or manual)
+            $('#scanActions').classList.remove('hidden');
+            $('#manualEntrySection').classList.add('hidden');
+            $('#receiptPayerArea').classList.add('hidden');
+            $('#aiResult').classList.add('hidden');
         };
         img.src = ev.target.result;
     };
     reader.readAsDataURL(file);
 }
 
+// AI Scan button
+$('#aiScanBtn2').addEventListener('click', () => {
+    const apiKey = $('#geminiApiKey').value.trim();
+    if (!apiKey) {
+        showToast('Enter your Gemini API key first (free at aistudio.google.com)', 'error');
+        return;
+    }
+    if (!receiptImageDataUrl) {
+        showToast('Please upload a receipt image first', 'error');
+        return;
+    }
+    saveGeminiApiKey(apiKey);
+    runGeminiScan(apiKey, receiptImageDataUrl);
+});
+
+// Manual entry fallback
+$('#manualEntryBtn').addEventListener('click', () => {
+    $('#scanActions').classList.add('hidden');
+    $('#aiResult').classList.add('hidden');
+    $('#manualEntrySection').classList.remove('hidden');
+    $('#receiptPayerArea').classList.remove('hidden');
+    initManualItems();
+});
+
 $('#retakePhotoBtn').addEventListener('click', () => {
     $('#receiptPreview').src = '';
     $('#receiptPreviewWrapper').classList.add('hidden');
     $('#uploadArea').querySelector('.upload-placeholder').classList.remove('hidden');
+    $('#scanActions').classList.add('hidden');
+    $('#aiLoading').classList.add('hidden');
+    $('#aiResult').classList.add('hidden');
     $('#manualEntrySection').classList.add('hidden');
+    $('#receiptPayerArea').classList.add('hidden');
     $('#receiptImageInput').value = '';
+    receiptImageDataUrl = null;
     clearManualItems();
 });
 
-// Manual item entry
+// ─── Gemini AI Scan ──────────────────────────
+async function runGeminiScan(apiKey, imageDataUrl) {
+    $('#scanActions').classList.add('hidden');
+    $('#aiLoading').classList.remove('hidden');
+    $('#aiResult').classList.add('hidden');
+    $('#manualEntrySection').classList.add('hidden');
+
+    try {
+        // Extract base64 data (remove "data:image/jpeg;base64," prefix)
+        const base64Data = imageDataUrl.split(',')[1];
+
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [
+                            {
+                                text: `Analyze this receipt image. Extract ALL line items with their names and prices.
+Return ONLY a valid JSON array of objects with "desc" (item name) and "amount" (number, in the receipt's currency).
+If you can detect a total at the bottom, include it as the last item with desc "TOTAL".
+Example format: [{"desc":"Coffee","amount":4.50},{"desc":"Sandwich","amount":8.00}]
+If you cannot read anything, return an empty array [].
+IMPORTANT: Return ONLY the raw JSON array, no markdown, no explanation.`
+                            },
+                            {
+                                inlineData: {
+                                    mimeType: 'image/jpeg',
+                                    data: base64Data
+                                }
+                            }
+                        ]
+                    }],
+                    generationConfig: {
+                        temperature: 0.1,
+                        maxOutputTokens: 1024
+                    }
+                })
+            }
+        );
+
+        $('#aiLoading').classList.add('hidden');
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error?.message || `API error ${response.status}`);
+        }
+
+        const data = await response.json();
+        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+
+        // Parse JSON — clean up markdown wrappers if present
+        let jsonStr = rawText.trim();
+        jsonStr = jsonStr.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
+        const items = JSON.parse(jsonStr);
+
+        if (!Array.isArray(items) || items.length === 0) {
+            showToast('AI could not detect any items. Try manual entry.', 'info');
+            $('#scanActions').classList.remove('hidden');
+            return;
+        }
+
+        // Display AI results
+        displayAiResults(items);
+    } catch (err) {
+        $('#aiLoading').classList.add('hidden');
+        console.error('Gemini scan error:', err);
+        showToast('AI scan failed: ' + (err.message || 'Unknown error') + '. Try manual entry.', 'error');
+        $('#scanActions').classList.remove('hidden');
+    }
+}
+
+function displayAiResults(items) {
+    const container = $('#aiResult');
+    const nonTotalItems = items.filter(i => i.desc.toUpperCase() !== 'TOTAL');
+    const totalItem = items.find(i => i.desc.toUpperCase() === 'TOTAL');
+    const sum = nonTotalItems.reduce((s, i) => s + (i.amount || 0), 0);
+
+    let html = '<h4>🤖 AI Extracted Items (tap to edit)</h4>';
+    nonTotalItems.forEach((item, idx) => {
+        html += `
+            <div class="ai-result-item" data-index="${idx}">
+                <input type="text" class="text-input ai-edit-desc" value="${escapeHtml(item.desc)}" style="flex:2;padding:6px 8px;font-size:0.82rem;">
+                <input type="number" class="text-input ai-edit-amount" value="${item.amount}" step="0.01" style="flex:1;padding:6px 8px;font-size:0.82rem;text-align:right;">
+                <span class="ai-item-del" data-index="${idx}">×</span>
+            </div>`;
+    });
+    html += `
+        <div class="ai-result-total">
+            <span>AI Total</span>
+            <strong id="aiResultTotal">${formatCurrency(sum, state.baseCurrency)}</strong>
+        </div>`;
+
+    container.innerHTML = html;
+    container.classList.remove('hidden');
+    $('#receiptPayerArea').classList.remove('hidden');
+
+    // Store items for later retrieval on "Add" click
+    container._aiItems = nonTotalItems;
+
+    // Update total on edit
+    container.querySelectorAll('.ai-edit-amount').forEach(inp => {
+        inp.addEventListener('input', () => {
+            let t = 0;
+            container.querySelectorAll('.ai-edit-amount').forEach(i => t += parseFloat(i.value) || 0);
+            $('#aiResultTotal').textContent = formatCurrency(t, state.baseCurrency);
+        });
+    });
+
+    // Delete item
+    container.querySelectorAll('.ai-item-del').forEach(btn => {
+        btn.addEventListener('click', () => {
+            btn.closest('.ai-result-item').remove();
+            let t = 0;
+            container.querySelectorAll('.ai-edit-amount').forEach(i => t += parseFloat(i.value) || 0);
+            $('#aiResultTotal').textContent = formatCurrency(t, state.baseCurrency);
+            if (container.querySelectorAll('.ai-result-item').length === 0) {
+                container.classList.add('hidden');
+                $('#receiptPayerArea').classList.add('hidden');
+            }
+        });
+    });
+}
+
+// ─── Add AI items as expenses ────────────────
+function getAiEditedItems() {
+    const items = [];
+    $$('#aiResult .ai-result-item').forEach(row => {
+        const desc = row.querySelector('.ai-edit-desc').value.trim();
+        const amount = parseFloat(row.querySelector('.ai-edit-amount').value);
+        if (desc && amount > 0) items.push({ desc, amount });
+    });
+    return items;
+}
+
+$('#addReceiptItemsBtn').addEventListener('click', () => {
+    const payer = $('#receiptPayerSelect').value;
+    if (!payer) { showToast('Select who paid', 'error'); return; }
+
+    // Try AI items first, then manual items
+    let items = getAiEditedItems();
+    if (items.length === 0) {
+        // Fallback to manual items
+        $$('.manual-item-row').forEach(row => {
+            const desc = row.querySelector('.manual-desc').value.trim();
+            const amount = parseFloat(row.querySelector('.manual-amount').value);
+            if (desc && amount > 0) items.push({ desc, amount });
+        });
+    }
+
+    if (items.length === 0) { showToast('Enter at least one item', 'error'); return; }
+
+    items.forEach(item => {
+        state.expenses.push({
+            id: Date.now() + Math.random(),
+            desc: item.desc,
+            amount: item.amount,
+            currency: state.baseCurrency,
+            payer,
+            splitMethod: 'equal',
+            participants: [...state.members],
+            settled: false
+        });
+    });
+
+    closeReceiptModal();
+    renderAll();
+    switchTab('expenses');
+    showToast(`Added ${items.length} items!`, 'success');
+});
+
+// Manual item entry (fallback)
 function initManualItems() {
     clearManualItems();
     addManualItemRow();
@@ -862,7 +1156,6 @@ function addManualItemRow() {
     row.querySelector('.remove-item-btn').addEventListener('click', () => {
         row.remove();
         updateManualTotal();
-        // Keep at least 1 row
         if ($('#manualItems').children.length === 0) addManualItemRow();
     });
     row.querySelector('.manual-amount').addEventListener('input', updateManualTotal);
@@ -877,40 +1170,7 @@ function updateManualTotal() {
     $('#manualTotal').textContent = formatCurrency(total, state.baseCurrency);
 }
 
-$('#addReceiptItemsBtn').addEventListener('click', () => {
-    const payer = $('#receiptPayerSelect').value;
-    if (!payer) { showToast('Select who paid', 'error'); return; }
-
-    const items = [];
-    const rows = $$('.manual-item-row');
-    rows.forEach(row => {
-        const desc = row.querySelector('.manual-desc').value.trim();
-        const amount = parseFloat(row.querySelector('.manual-amount').value);
-        if (desc && amount > 0) items.push({ desc, amount });
-    });
-
-    if (items.length === 0) { showToast('Enter at least one item', 'error'); return; }
-
-    items.forEach(item => {
-        state.expenses.push({
-            id: Date.now() + Math.random(),
-            desc: item.desc,
-            amount: item.amount,
-            currency: state.baseCurrency,
-            payer,
-            splitMethod: 'equal',
-            participants: [...state.members],
-            settled: false
-        });
-    });
-
-    closeReceiptModal();
-    renderAll();
-    switchTab('expenses');
-    showToast(`Added ${items.length} items!`, 'success');
-});
-
-// ─── Keyboard shortcut: Escape to close modal ──
+// ─── Keyboard shortcut ───────────────────────
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('#receiptModal').classList.contains('hidden')) {
         closeReceiptModal();

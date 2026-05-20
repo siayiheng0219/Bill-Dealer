@@ -120,7 +120,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="form-group">
+                        <div class="form-group" id="splitAmongGroup">
                             <label>Split Among</label>
                             <div id="participantsCheckboxes" class="checkboxes-grid">
                                 <p class="empty-hint">Add members first</p>
@@ -184,12 +184,18 @@
                     <button class="modal-close" id="closeReceiptModal">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <p class="modal-desc">Upload a receipt photo, then manually enter items while viewing the photo. More reliable than AI-only scanning.</p>
+                    <div class="form-group">
+                        <label>🔑 Gemini API Key <span class="label-hint">(free tier, stored locally)</span></label>
+                        <div class="api-key-row">
+                            <input type="password" id="geminiApiKey" class="text-input" placeholder="AIza... — Get at aistudio.google.com" autocomplete="off">
+                            <button type="button" id="toggleApiKey" class="btn btn-xs btn-ghost">👁</button>
+                        </div>
+                    </div>
                     <div class="upload-area" id="uploadArea">
                         <div class="upload-placeholder">
                             <span class="upload-icon">📷</span>
                             <p>Tap to take photo or upload</p>
-                            <p class="upload-hint">JPG, PNG, HEIC supported · Auto-resized</p>
+                            <p class="upload-hint">Snap a receipt → AI extracts items automatically</p>
                         </div>
                         <input type="file" id="receiptImageInput" accept="image/*" capture="environment" class="hidden">
                     </div>
@@ -197,6 +203,15 @@
                         <img id="receiptPreview" class="receipt-preview" alt="Receipt">
                         <button id="retakePhotoBtn" class="btn btn-xs btn-ghost">↺ Retake</button>
                     </div>
+                    <div id="scanActions" class="scan-actions hidden">
+                        <button id="aiScanBtn2" class="btn btn-primary btn-lg">🤖 AI Extract Items</button>
+                        <button id="manualEntryBtn" class="btn btn-ghost btn-sm">Or enter manually</button>
+                    </div>
+                    <div id="aiLoading" class="ai-loading hidden">
+                        <div class="spinner"></div>
+                        <p>Analyzing receipt with Gemini AI...</p>
+                    </div>
+                    <div id="aiResult" class="ai-result-area hidden"></div>
                     <div id="manualEntrySection" class="manual-entry hidden">
                         <h4>📝 Enter Items from Receipt</h4>
                         <div id="manualItems"></div>
@@ -205,6 +220,8 @@
                             <span>Total from items:</span>
                             <strong id="manualTotal">$0.00</strong>
                         </div>
+                    </div>
+                    <div id="receiptPayerArea" class="hidden">
                         <div class="form-group">
                             <label>Paid By</label>
                             <select id="receiptPayerSelect" class="select-input">
