@@ -185,10 +185,17 @@
                 </div>
                 <div class="modal-body">
                     <div class="form-group">
-                        <label>🔑 Gemini API Key <span class="label-hint">(optional fallback)</span></label>
+                        <label>🔑 Groq API Key <span class="label-hint">(primary, free)</span></label>
                         <div class="api-key-row">
-                            <input type="password" id="geminiApiKey" class="text-input" placeholder="AIza... — Get at aistudio.google.com" autocomplete="off">
-                            <button type="button" id="toggleApiKey" class="btn btn-xs btn-ghost">👁</button>
+                            <input type="password" id="groqApiKey" class="text-input" placeholder="gsk_... — Get at console.groq.com" autocomplete="off">
+                            <button type="button" class="btn btn-xs btn-ghost toggle-key" data-target="groqApiKey">👁</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>🔑 OpenRouter Key <span class="label-hint">(fallback, free)</span></label>
+                        <div class="api-key-row">
+                            <input type="password" id="openrouterApiKey" class="text-input" placeholder="sk-or-v1-... — Get at openrouter.ai/keys" autocomplete="off">
+                            <button type="button" class="btn btn-xs btn-ghost toggle-key" data-target="openrouterApiKey">👁</button>
                         </div>
                     </div>
                     <label class="upload-area" id="uploadArea" for="receiptImageInput">

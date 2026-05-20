@@ -805,46 +805,40 @@ function updateStaticText() {
     $('#clearBtn').textContent = _('clear');
 }
 
-// ─── Receipt Scanner (Tesseract.js OCR → Gemini AI → structured JSON) ──
+// ─── Receipt Scanner (Tesseract OCR → Groq → OpenRouter → Manual) ──
 
-const GEMINI_KEY_STORAGE = 'bill-dealer-gemini-key';
+const GROQ_KEY_STORAGE = 'bill-dealer-groq-key';
+const OPENROUTER_KEY_STORAGE = 'bill-dealer-openrouter-key';
 
-function getGeminiApiKey() {
-    return localStorage.getItem(GEMINI_KEY_STORAGE)
-        || localStorage.getItem('gemini_api_key')
-        || '';
-}
-
-function saveGeminiApiKey(key) {
-    localStorage.setItem(GEMINI_KEY_STORAGE, key.trim());
-}
+function getGroqApiKey() { return localStorage.getItem(GROQ_KEY_STORAGE) || ''; }
+function getOpenRouterKey() { return localStorage.getItem(OPENROUTER_KEY_STORAGE) || ''; }
+function saveGroqApiKey(k) { localStorage.setItem(GROQ_KEY_STORAGE, k.trim()); }
+function saveOpenRouterKey(k) { localStorage.setItem(OPENROUTER_KEY_STORAGE, k.trim()); }
 
 $('#scanReceiptBtn').addEventListener('click', openReceiptModal);
 $('#closeReceiptModal').addEventListener('click', closeReceiptModal);
 $('#receiptModal').addEventListener('click', (e) => { if (e.target === $('#receiptModal')) closeReceiptModal(); });
 
-// Toggle API key visibility
-$('#toggleApiKey').addEventListener('click', () => {
-    const inp = $('#geminiApiKey');
-    const btn = $('#toggleApiKey');
-    if (inp.type === 'password') {
-        inp.type = 'text';
-        btn.textContent = '🙈';
-    } else {
-        inp.type = 'password';
-        btn.textContent = '👁';
-    }
+// Toggle API key visibility (works for both Groq & OpenRouter)
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.toggle-key');
+    if (!btn) return;
+    const targetId = btn.dataset.target;
+    const inp = document.getElementById(targetId);
+    if (!inp) return;
+    if (inp.type === 'password') { inp.type = 'text'; btn.textContent = '🙈'; }
+    else { inp.type = 'password'; btn.textContent = '👁'; }
 });
 
-// Auto-save API key on input
-$('#geminiApiKey').addEventListener('input', () => {
-    saveGeminiApiKey($('#geminiApiKey').value);
-});
+// Auto-save on input
+$('#groqApiKey').addEventListener('input', () => saveGroqApiKey($('#groqApiKey').value));
+$('#openrouterApiKey').addEventListener('input', () => saveOpenRouterKey($('#openrouterApiKey').value));
 
 function openReceiptModal() {
     if (state.members.length === 0) { showToast(_('selectMembers'), 'error'); return; }
     $('#receiptModal').classList.remove('hidden');
-    $('#geminiApiKey').value = getGeminiApiKey();
+    $('#groqApiKey').value = getGroqApiKey();
+    $('#openrouterApiKey').value = getOpenRouterKey();
     resetReceiptModal();
     renderPayerSelect();
 }
@@ -876,7 +870,7 @@ function resetReceiptModal() {
     clearManualItems();
 }
 
-// Upload — label's "for" attribute handles file picker natively
+// Upload
 $('#uploadArea').addEventListener('dragover', (e) => { e.preventDefault(); $('#uploadArea').classList.add('dragover'); });
 $('#uploadArea').addEventListener('dragleave', () => $('#uploadArea').classList.remove('dragover'));
 $('#uploadArea').addEventListener('drop', (e) => {
@@ -891,36 +885,22 @@ $('#receiptImageInput').addEventListener('change', (e) => {
 
 function processReceiptImage(file) {
     $('#uploadArea').querySelector('.upload-placeholder').innerHTML = `
-        <span class="upload-icon">⏳</span>
-        <p>Processing image...</p>`;
-
+        <span class="upload-icon">⏳</span><p>Processing image...</p>`;
     const reader = new FileReader();
-    reader.onerror = () => {
-        showToast('Failed to read image file', 'error');
-        resetUploadPlaceholder();
-    };
+    reader.onerror = () => { showToast('Failed to read image file', 'error'); resetUploadPlaceholder(); };
     reader.onload = (ev) => {
         const img = new Image();
-        img.onerror = () => {
-            showToast('Failed to load image — try a different format', 'error');
-            resetUploadPlaceholder();
-        };
+        img.onerror = () => { showToast('Failed to load image', 'error'); resetUploadPlaceholder(); };
         img.onload = () => {
-            // Resize to max 1024px for OCR performance
-            const maxW = 1024;
-            let w = img.width, h = img.height;
+            const maxW = 1024; let w = img.width, h = img.height;
             if (w > maxW) { h = h * (maxW / w); w = maxW; }
             const canvas = document.createElement('canvas');
-            canvas.width = w;
-            canvas.height = h;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, w, h);
+            canvas.width = w; canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
             receiptImageDataUrl = canvas.toDataURL('image/jpeg', 0.7);
-
             $('#receiptPreview').src = receiptImageDataUrl;
             $('#receiptPreviewWrapper').classList.remove('hidden');
             $('#uploadArea').querySelector('.upload-placeholder').classList.add('hidden');
-
             $('#scanActions').classList.remove('hidden');
             $('#manualEntrySection').classList.add('hidden');
             $('#receiptPayerArea').classList.add('hidden');
@@ -938,18 +918,16 @@ function resetUploadPlaceholder() {
         <p class="upload-hint">OCR reads text → AI structures it → add to bill</p>`;
 }
 
-// ─── Scan: Tesseract OCR → Gemini (text-only) ──
+// ─── Scan button ──
 $('#aiScanBtn2').addEventListener('click', () => {
-    if (!receiptImageDataUrl) {
-        showToast('Please upload a receipt image first', 'error');
-        return;
-    }
-    const localKey = $('#geminiApiKey').value.trim();
-    if (localKey) saveGeminiApiKey(localKey);
-    runReceiptScan(receiptImageDataUrl, localKey);
+    if (!receiptImageDataUrl) { showToast('Please upload a receipt image first', 'error'); return; }
+    const groqKey = $('#groqApiKey').value.trim();
+    const orKey = $('#openrouterApiKey').value.trim();
+    if (groqKey) saveGroqApiKey(groqKey);
+    if (orKey) saveOpenRouterKey(orKey);
+    runReceiptScan(receiptImageDataUrl, groqKey, orKey);
 });
 
-// Manual entry fallback
 $('#manualEntryBtn').addEventListener('click', () => {
     $('#scanActions').classList.add('hidden');
     $('#aiResult').classList.add('hidden');
@@ -972,177 +950,152 @@ $('#retakePhotoBtn').addEventListener('click', () => {
     clearManualItems();
 });
 
-// ─── 3-Tier Pipeline: OCR → Server | OCR → Local Key | Manual ──
+// ─── Pipeline: OCR → Server(Groq→OR) | OCR → Local Groq | OCR → Local OR | Manual ──
 
-async function runReceiptScan(imageDataUrl, localKey) {
+async function runReceiptScan(imageDataUrl, groqKey, openRouterKey) {
     $('#scanActions').classList.add('hidden');
     $('#aiLoading').classList.remove('hidden');
     $('#aiResult').classList.add('hidden');
     $('#manualEntrySection').classList.add('hidden');
+    const lt = $('#aiLoading p');
 
-    const loadingText = $('#aiLoading p');
-
-    // ── Step 0: Tesseract OCR (client-side, free) ──
-    loadingText.textContent = '🔍 OCR: Reading text from image...';
+    // Step 0: Tesseract OCR
+    lt.textContent = '🔍 OCR: Reading text from image...';
     let ocrText;
     try {
         ocrText = await runTesseractOCR(imageDataUrl);
-        if (!ocrText || !ocrText.trim()) {
-            throw new Error('No text detected');
-        }
-        console.log('[ReceiptScan] OCR result:', ocrText.slice(0, 200));
+        if (!ocrText || !ocrText.trim()) throw new Error('No text detected');
+        console.log('[ReceiptScan] OCR:', ocrText.slice(0, 200));
     } catch (err) {
         console.warn('[ReceiptScan] OCR failed:', err.message);
         $('#aiLoading').classList.add('hidden');
-        showToast('OCR could not read the image — try a clearer photo or enter manually', 'info');
+        showToast('OCR could not read the image — enter manually', 'info');
         $('#manualEntrySection').classList.remove('hidden');
         $('#receiptPayerArea').classList.remove('hidden');
         initManualItems();
         return;
     }
 
-    // ── Tier 1: Server proxy (text → Gemini) ──
-    loadingText.textContent = '🤖 Tier 1: Server AI processing...';
+    // Tier 1: Server proxy (Groq → OpenRouter)
+    lt.textContent = '🤖 Tier 1: Server AI (Groq → OpenRouter)...';
     const serverResult = await tryServerScan(ocrText);
-    if (serverResult) {
-        displayScanResult(serverResult);
-        return;
+    if (serverResult) { displayScanResult(serverResult); return; }
+
+    // Tier 2: Local Groq key
+    if (groqKey) {
+        lt.textContent = '🤖 Tier 2: Your Groq key (llama 3.1 8B)...';
+        const groqResult = await tryGroqScan(ocrText, groqKey);
+        if (groqResult) { displayScanResult(groqResult); return; }
     }
 
-    // ── Tier 2: Local Gemini key (text → Gemini) ──
-    if (localKey) {
-        loadingText.textContent = '🤖 Tier 2: Your Gemini key...';
-        const geminiResult = await tryGeminiScan(ocrText, localKey);
-        if (geminiResult) {
-            displayScanResult(geminiResult);
-            return;
-        }
+    // Tier 3: Local OpenRouter key
+    if (openRouterKey) {
+        lt.textContent = '🤖 Tier 3: OpenRouter (free Llama 3.2)...';
+        const orResult = await tryOpenRouterScan(ocrText, openRouterKey);
+        if (orResult) { displayScanResult(orResult); return; }
     }
 
-    // ── Tier 3: Manual entry ──
+    // Tier 4: Manual
     $('#aiLoading').classList.add('hidden');
-    showToast('AI unavailable — enter items manually below', 'info');
+    showToast('All AI tiers unavailable — enter manually', 'info');
     $('#manualEntrySection').classList.remove('hidden');
     $('#receiptPayerArea').classList.remove('hidden');
     initManualItems();
 }
 
-// ─── Tesseract.js OCR (client-side, no API cost) ───
+// ─── Tesseract.js OCR ───
 
 async function runTesseractOCR(imageDataUrl) {
     const worker = await Tesseract.createWorker('eng+chi_sim', 1, {
         logger: (m) => {
             if (m.status === 'recognizing text') {
                 const pct = Math.round(m.progress * 100);
-                const loadingText = $('#aiLoading p');
-                if (loadingText) loadingText.textContent = `🔍 OCR: Reading text... ${pct}%`;
+                const lt = $('#aiLoading p');
+                if (lt) lt.textContent = `🔍 OCR: Reading text... ${pct}%`;
             }
         }
     });
-    try {
-        const { data: { text } } = await worker.recognize(imageDataUrl);
-        return text;
-    } finally {
-        await worker.terminate();
-    }
+    try { const { data: { text } } = await worker.recognize(imageDataUrl); return text; }
+    finally { await worker.terminate(); }
 }
 
-// ─── Tier 1: Server proxy (text → Gemini) ───
+// ─── Shared: call OpenAI-compatible chat API ───
 
-async function tryServerScan(ocrText) {
-    try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15000);
-
-        const res = await fetch('/api/split-receipt', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: ocrText }),
-            signal: controller.signal
-        });
-        clearTimeout(timeout);
-
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            console.warn('[ReceiptScan] Tier 1 failed:', res.status, err.error || '');
-            return null;
-        }
-
-        const result = await res.json();
-        if (!result.items || result.items.length === 0) {
-            console.warn('[ReceiptScan] Tier 1: no items in response');
-            return null;
-        }
-
-        console.log('[ReceiptScan] Tier 1 SUCCESS — server proxy');
-        return result;
-    } catch (err) {
-        console.warn('[ReceiptScan] Tier 1 error:', err.name, err.message);
-        return null;
-    }
-}
-
-// ─── Tier 2: Direct Gemini call (text-only, minimal tokens) ───
-
-async function tryGeminiScan(ocrText, apiKey) {
-    try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15000);
-
-        const res = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{
-                        parts: [{
-                            text: `You are a precise receipt parser. Given OCR-extracted text from a restaurant receipt, extract structured data.
+const RECEIPT_SYSTEM = `You are a precise receipt parser. Given OCR-extracted text from a restaurant receipt, extract structured data.
 
 Rules:
 1. Extract every line item with its name and unit price.
 2. Identify: Subtotal, Tax/SST, Service Charge, Grand Total.
-3. If sum of item prices ≈ Grand Total, set isTaxInclusive=true; otherwise false.
-4. Output ONLY valid JSON — no markdown, no code fences, no commentary.
+3. If sum of item prices ≈ Grand Total, set isTaxInclusive=true; otherwise false.`;
 
-JSON schema:
-{"isTaxInclusive":true,"subtotal":95,"tax":5,"serviceCharge":9.5,"grandTotal":109.5,"items":[{"name":"Item Name","price":38.00}]}
+async function callChatAPI(url, apiKey, model, ocrText, extraHeaders = {}) {
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, ...extraHeaders },
+        body: JSON.stringify({
+            model,
+            messages: [
+                { role: 'system', content: RECEIPT_SYSTEM },
+                { role: 'user', content: `OCR Text:\n${ocrText}\n\nRespond with JSON matching: ${'{"isTaxInclusive":true,"subtotal":95,"tax":5,"serviceCharge":9.5,"grandTotal":109.5,"items":[{"name":"Item Name","price":38.00}]}'}` },
+            ],
+            response_format: { type: 'json_object' },
+            temperature: 0.1,
+            max_tokens: 1024,
+        }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return JSON.parse(data.choices?.[0]?.message?.content || '{}');
+}
 
-OCR Text:
-${ocrText}`
-                        }]
-                    }],
-                    generationConfig: { temperature: 0.1, maxOutputTokens: 1024 }
-                }),
-                signal: controller.signal
-            }
-        );
-        clearTimeout(timeout);
+// ─── Tier 1: Server proxy ───
 
-        if (!res.ok) {
-            const errText = await res.text().catch(() => '');
-            console.warn('[ReceiptScan] Tier 2 failed:', res.status, errText.slice(0, 200));
-            return null;
-        }
-
-        const data = await res.json();
-        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
-        let result;
-        try { result = JSON.parse(rawText.trim()); } catch {
-            const match = rawText.match(/\{[\s\S]*\}/);
-            if (!match) return null;
-            result = JSON.parse(match[0]);
-        }
-
-        if (!result.items || result.items.length === 0) return null;
-
-        console.log('[ReceiptScan] Tier 2 SUCCESS — local Gemini key');
+async function tryServerScan(ocrText) {
+    try {
+        const c = new AbortController();
+        const t = setTimeout(() => c.abort(), 15000);
+        const res = await fetch('/api/split-receipt', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: ocrText }), signal: c.signal
+        });
+        clearTimeout(t);
+        if (!res.ok) { console.warn('[ReceiptScan] Server failed:', res.status); return null; }
+        const result = await res.json();
+        if (!result.items?.length) { console.warn('[ReceiptScan] Server: no items'); return null; }
+        console.log('[ReceiptScan] Tier 1 SUCCESS — server');
         return result;
-    } catch (err) {
-        console.warn('[ReceiptScan] Tier 2 error:', err.name, err.message);
-        return null;
-    }
+    } catch (err) { console.warn('[ReceiptScan] Tier 1 error:', err.message); return null; }
+}
+
+// ─── Tier 2: Local Groq ───
+
+async function tryGroqScan(ocrText, apiKey) {
+    try {
+        const c = new AbortController();
+        const t = setTimeout(() => c.abort(), 15000);
+        const result = await callChatAPI('https://api.groq.com/openai/v1/chat/completions', apiKey, 'llama-3.1-8b-instant', ocrText);
+        clearTimeout(t);
+        if (!result?.items?.length) return null;
+        console.log('[ReceiptScan] Tier 2 SUCCESS — Groq');
+        return result;
+    } catch (err) { console.warn('[ReceiptScan] Tier 2 error:', err.message); return null; }
+}
+
+// ─── Tier 3: Local OpenRouter ───
+
+async function tryOpenRouterScan(ocrText, apiKey) {
+    try {
+        const c = new AbortController();
+        const t = setTimeout(() => c.abort(), 15000);
+        const result = await callChatAPI('https://openrouter.ai/api/v1/chat/completions', apiKey, 'meta-llama/llama-3.2-3b-instruct:free', ocrText, {
+            'HTTP-Referer': window.location.origin,
+            'X-Title': 'Bill Dealer',
+        });
+        clearTimeout(t);
+        if (!result?.items?.length) return null;
+        console.log('[ReceiptScan] Tier 3 SUCCESS — OpenRouter');
+        return result;
+    } catch (err) { console.warn('[ReceiptScan] Tier 3 error:', err.message); return null; }
 }
 
 // ─── Display scan result ───
@@ -1341,4 +1294,4 @@ function init() {
 
 init();
 
-console.log('🧾 Bill Dealer v2 ready — Tesseract OCR + Gemini AI + Manual fallback');
+console.log('🧾 Bill Dealer v2 ready — Tesseract OCR + Groq → OpenRouter → Manual');

@@ -1,26 +1,24 @@
 // ============================================================
 //  Vercel Edge Function — Receipt Text → Structured JSON
 //  OCR:   Tesseract.js (client-side, zero API cost)
-//  AI:    Gemini 2.5 Flash (text-only, minimal tokens)
-//  FREE:  1.5K Gemini req/day — text is far cheaper than images
+//  AI:    Groq (primary) → OpenRouter (fallback)
+//  FREE:  Groq 30 req/min + OpenRouter free models
 // ============================================================
 
-const GEMINI_KEY = process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const GROQ_KEY = process.env.GROQ_API_KEY || '';
+const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
 
-const PROMPT = `You are a precise receipt parser. Given the OCR-extracted text from a restaurant receipt below, extract structured data.
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
+const SYSTEM_PROMPT = `You are a precise receipt parser. Given OCR-extracted text from a restaurant receipt, extract structured data.
 
 Rules:
 1. Extract every line item with its name and unit price.
 2. Identify: Subtotal, Tax/SST, Service Charge, Grand Total.
-3. If sum of item prices ≈ Grand Total, set isTaxInclusive=true; otherwise false.
-4. Output ONLY valid JSON — no markdown, no code fences, no commentary.
+3. If sum of item prices ≈ Grand Total, set isTaxInclusive=true; otherwise false.`;
 
-JSON schema:
-{"isTaxInclusive":true,"subtotal":95,"tax":5,"serviceCharge":9.5,"grandTotal":109.5,"items":[{"name":"Item Name","price":38.00}]}
-
-OCR Text:
-`;
+const JSON_SCHEMA = '{"isTaxInclusive":true,"subtotal":95,"tax":5,"serviceCharge":9.5,"grandTotal":109.5,"items":[{"name":"Item Name","price":38.00}]}';
 
 const cors = {
     'Access-Control-Allow-Origin': '*',
@@ -28,57 +26,72 @@ const cors = {
     'Access-Control-Allow-Headers': 'Content-Type',
 };
 
+async function callAI(url, apiKey, model, ocrText, extraHeaders = {}) {
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+            ...extraHeaders,
+        },
+        body: JSON.stringify({
+            model,
+            messages: [
+                { role: 'system', content: SYSTEM_PROMPT },
+                { role: 'user', content: `OCR Text:\n${ocrText}\n\nRespond with JSON matching: ${JSON_SCHEMA}` },
+            ],
+            response_format: { type: 'json_object' },
+            temperature: 0.1,
+            max_tokens: 1024,
+        }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const raw = data.choices?.[0]?.message?.content || '';
+    return JSON.parse(raw);
+}
+
 export async function POST(req) {
     try {
         const { text } = await req.json();
         if (!text || !text.trim()) return Response.json({ error: 'No OCR text provided' }, { status: 400, headers: cors });
-        if (!GEMINI_KEY) return Response.json({ error: 'Server key not configured' }, { status: 503, headers: cors });
 
-        // Call Gemini with text only (much cheaper than image)
-        const geminiRes = await fetch(`${GEMINI_URL}?key=${GEMINI_KEY}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{
-                    parts: [{ text: PROMPT + text }],
-                }],
-                generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
-            }),
-        });
-
-        if (!geminiRes.ok) {
-            const errText = await geminiRes.text().catch(() => '');
-            console.error('[split-receipt] Gemini error:', geminiRes.status, errText.slice(0, 300));
-            return Response.json(
-                { error: `Gemini ${geminiRes.status}`, detail: errText.slice(0, 200) },
-                { status: 502, headers: cors }
-            );
+        // ── Tier 1: Groq (fast + generous free tier) ──
+        if (GROQ_KEY) {
+            console.log('[split-receipt] Trying Groq...');
+            try {
+                const result = await callAI(GROQ_URL, GROQ_KEY, 'llama-3.1-8b-instant', text);
+                if (result?.items?.length) {
+                    console.log('[split-receipt] Groq SUCCESS');
+                    return Response.json(result, { status: 200, headers: cors });
+                }
+            } catch (e) { console.warn('[split-receipt] Groq failed:', e.message); }
         }
 
-        const data = await geminiRes.json();
-        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
-        // Parse JSON (direct + regex fallback)
-        let result;
-        try { result = JSON.parse(rawText.trim()); } catch {
-            const m = rawText.match(/\{[\s\S]*\}/);
-            if (!m) {
-                return Response.json(
-                    { error: 'PARSE_FAILED', raw: rawText.slice(0, 200) },
-                    { status: 422, headers: cors }
-                );
-            }
-            result = JSON.parse(m[0]);
+        // ── Tier 2: OpenRouter (free models) ──
+        if (OPENROUTER_KEY) {
+            console.log('[split-receipt] Trying OpenRouter...');
+            try {
+                const result = await callAI(OPENROUTER_URL, OPENROUTER_KEY, 'meta-llama/llama-3.2-3b-instruct:free', text, {
+                    'HTTP-Referer': 'https://bill-dealer.vercel.app',
+                    'X-Title': 'Bill Dealer',
+                });
+                if (result?.items?.length) {
+                    console.log('[split-receipt] OpenRouter SUCCESS');
+                    return Response.json(result, { status: 200, headers: cors });
+                }
+            } catch (e) { console.warn('[split-receipt] OpenRouter failed:', e.message); }
         }
 
-        return Response.json(result, { status: 200, headers: cors });
+        // ── Both failed ──
+        if (!GROQ_KEY && !OPENROUTER_KEY) {
+            return Response.json({ error: 'No AI keys configured on server' }, { status: 503, headers: cors });
+        }
+        return Response.json({ error: 'AI_PARSE_FAILED', detail: 'All providers failed' }, { status: 502, headers: cors });
 
     } catch (err) {
         console.error('[split-receipt]', err.message);
-        return Response.json(
-            { error: 'SCAN_FAILED', message: err.message },
-            { status: 500, headers: cors }
-        );
+        return Response.json({ error: 'SCAN_FAILED', message: err.message }, { status: 500, headers: cors });
     }
 }
 
