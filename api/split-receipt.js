@@ -11,14 +11,15 @@ const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
-const SYSTEM_PROMPT = `You are a precise receipt parser. Given OCR-extracted text from a restaurant receipt, extract structured data.
+const SYSTEM_PROMPT = `Extract receipt data from OCR text into JSON.
 
-Rules:
-1. Extract every line item with its name and unit price.
-2. Identify: Subtotal, Tax/SST, Service Charge, Grand Total.
-3. If sum of item prices ≈ Grand Total, set isTaxInclusive=true; otherwise false.`;
+RULES:
+- Items: extract only lines that have a price number. Skip sub-description lines without prices (e.g. "Sprite" under a main item).
+- Merge multi-line names (e.g. "K3 Cheese" then "Ramyeon" → "Cheese Ramyeon").
+- Totals: copy the EXACT number after SUBTOTAL, TAX, SERVICE CHARGE, GRANDTOTAL labels. Never calculate.
+- isTaxInclusive: false if service charge or tax is listed separately.`;
 
-const JSON_SCHEMA = '{"isTaxInclusive":true,"subtotal":95,"tax":5,"serviceCharge":9.5,"grandTotal":109.5,"items":[{"name":"Item Name","price":38.00}]}';
+const JSON_SCHEMA = '{"isTaxInclusive":false,"subtotal":192,"tax":0,"serviceCharge":19.2,"grandTotal":217.2,"items":[{"name":"Item Name","price":38.00}]}';
 
 const cors = {
     'Access-Control-Allow-Origin': '*',
@@ -48,7 +49,16 @@ async function callAI(url, apiKey, model, ocrText, extraHeaders = {}) {
     if (!res.ok) return null;
     const data = await res.json();
     const raw = data.choices?.[0]?.message?.content || '';
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    // Normalize: flatten nested totals if present
+    if (parsed.totals && !parsed.subtotal) {
+        parsed.subtotal = parsed.totals.subtotal;
+        parsed.tax = parsed.totals.tax;
+        parsed.serviceCharge = parsed.totals.serviceCharge;
+        parsed.grandTotal = parsed.totals.grandTotal;
+        delete parsed.totals;
+    }
+    return parsed;
 }
 
 export async function POST(req) {

@@ -1024,12 +1024,13 @@ async function runTesseractOCR(imageDataUrl) {
 
 // ─── Shared: call OpenAI-compatible chat API ───
 
-const RECEIPT_SYSTEM = `You are a precise receipt parser. Given OCR-extracted text from a restaurant receipt, extract structured data.
+const RECEIPT_SYSTEM = `Extract receipt data from OCR text into JSON.
 
-Rules:
-1. Extract every line item with its name and unit price.
-2. Identify: Subtotal, Tax/SST, Service Charge, Grand Total.
-3. If sum of item prices ≈ Grand Total, set isTaxInclusive=true; otherwise false.`;
+RULES:
+- Items: extract only lines that have a price number. Skip sub-description lines without prices (e.g. "Sprite" under a main item).
+- Merge multi-line names (e.g. "K3 Cheese" then "Ramyeon" → "Cheese Ramyeon").
+- Totals: copy the EXACT number after SUBTOTAL, TAX, SERVICE CHARGE, GRANDTOTAL labels. Never calculate.
+- isTaxInclusive: false if service charge or tax is listed separately.`;
 
 async function callChatAPI(url, apiKey, model, ocrText, extraHeaders = {}) {
     const res = await fetch(url, {
@@ -1039,7 +1040,7 @@ async function callChatAPI(url, apiKey, model, ocrText, extraHeaders = {}) {
             model,
             messages: [
                 { role: 'system', content: RECEIPT_SYSTEM },
-                { role: 'user', content: `OCR Text:\n${ocrText}\n\nRespond with JSON matching: ${'{"isTaxInclusive":true,"subtotal":95,"tax":5,"serviceCharge":9.5,"grandTotal":109.5,"items":[{"name":"Item Name","price":38.00}]}'}` },
+                { role: 'user', content: `OCR Text:\n${ocrText}\n\nReturn JSON: ${'{"isTaxInclusive":false,"subtotal":192,"tax":0,"serviceCharge":19.2,"grandTotal":217.2,"items":[{"name":"Item","price":38.00}]}'}` },
             ],
             response_format: { type: 'json_object' },
             temperature: 0.1,
@@ -1048,7 +1049,16 @@ async function callChatAPI(url, apiKey, model, ocrText, extraHeaders = {}) {
     });
     if (!res.ok) return null;
     const data = await res.json();
-    return JSON.parse(data.choices?.[0]?.message?.content || '{}');
+    const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
+    // Normalize: flatten nested totals if AI returns them
+    if (parsed.totals && !parsed.subtotal) {
+        parsed.subtotal = parsed.totals.subtotal;
+        parsed.tax = parsed.totals.tax;
+        parsed.serviceCharge = parsed.totals.serviceCharge;
+        parsed.grandTotal = parsed.totals.grandTotal;
+        delete parsed.totals;
+    }
+    return parsed;
 }
 
 // ─── Tier 1: Server proxy ───
