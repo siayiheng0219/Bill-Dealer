@@ -6,10 +6,11 @@
 // ─── State ───────────────────────────────────
 const state = {
     members: [],
-    expenses: [],       // { id, desc, amount, currency, payer, splitMethod, participants, customShares?, settled }
+    expenses: [],       // { id, desc, amount, currency, payer, splitMethod, participants, customShares?, settled, date }
     baseCurrency: 'USD',
     lang: 'en',
-    activeTab: 'expenses'
+    activeTab: 'expenses',
+    expenseFilter: { payer: '', involved: '', period: '' }
 };
 
 // ─── Currency Data ───────────────────────────
@@ -254,6 +255,7 @@ function renderAll() {
     renderPayerSelect();
     renderParticipants();
     renderCustomSplit(true);
+    populateFilters();
     renderExpenses();
     renderSettlement();
     updateCounts();
@@ -466,8 +468,34 @@ function renderExpenses() {
         container.innerHTML = `<p class="empty-hint">${_('noExpenses')}</p>`;
         return;
     }
-    container.innerHTML = state.expenses.map((e, i) => `
-        <div class="expense-item${e.settled ? ' settled' : ''}" data-index="${i}">
+
+    // Apply filters
+    const f = state.expenseFilter;
+    const now = Date.now();
+    const dayMs = 86400000;
+    const filtered = state.expenses.filter(e => {
+        if (f.payer && e.payer !== f.payer) return false;
+        if (f.involved && !e.participants.includes(f.involved)) return false;
+        if (f.period === 'today' && now - e.id > dayMs) return false;
+        if (f.period === 'week' && now - e.id > 7 * dayMs) return false;
+        if (f.period === 'month' && now - e.id > 30 * dayMs) return false;
+        return true;
+    });
+
+    const hasFilter = f.payer || f.involved || f.period;
+
+    let html = '';
+    if (hasFilter) {
+        html += `<div class="filter-count">Showing ${filtered.length} of ${state.expenses.length}</div>`;
+    }
+
+    if (filtered.length === 0) {
+        html += `<p class="empty-hint">${hasFilter ? 'No matching expenses' : _('noExpenses')}</p>`;
+    } else {
+        html += filtered.map((e, i) => {
+            const dateStr = new Date(e.id).toLocaleDateString();
+            return `
+        <div class="expense-item${e.settled ? ' settled' : ''}" data-index="${state.expenses.indexOf(e)}">
             <div class="settled-check">✓</div>
             <div class="settled-indicator"></div>
             <div class="expense-info">
@@ -475,12 +503,16 @@ function renderExpenses() {
                 <div class="expense-meta">
                     <span>👤 ${escapeHtml(e.payer)}</span>
                     <span>👥 ${e.participants.map(p => escapeHtml(p)).join(', ')}</span>
+                    <span>📅 ${dateStr}</span>
                 </div>
             </div>
             <span class="expense-amount">${getFlag(e.currency)} ${formatCurrency(e.amount, e.currency)}</span>
-            <span class="delete-expense" data-index="${i}">×</span>
-        </div>
-    `).join('');
+            <span class="delete-expense" data-index="${state.expenses.indexOf(e)}">×</span>
+        </div>`;
+        }).join('');
+    }
+
+    container.innerHTML = html;
 }
 
 // Toggle settled on expense click (but not on delete button)
@@ -1136,29 +1168,35 @@ function displayAiResults(items, receiptMeta = null) {
     const container = $('#aiResult');
     const sum = items.reduce((s, i) => s + (i.amount || 0), 0);
 
+    // Store original receipt meta for proportional recalc
+    const orig = receiptMeta ? { ...receiptMeta, origSubtotal: receiptMeta.subtotal || sum } : null;
+
     let html = '<h4>🤖 AI Extracted Items (edit if needed)</h4>';
 
     items.forEach((item, idx) => {
+        const memberOpts = `<option value="all">👥 All (split equally)</option>` +
+            state.members.map(m => `<option value="${escapeHtml(m)}">👤 ${escapeHtml(m)}</option>`).join('');
         html += `
             <div class="ai-result-item" data-index="${idx}">
                 <input type="text" class="text-input ai-edit-desc" value="${escapeHtml(item.desc)}" style="flex:2;padding:6px 8px;font-size:0.82rem;">
                 <input type="number" class="text-input ai-edit-amount" value="${item.amount}" step="0.01" style="flex:1;padding:6px 8px;font-size:0.82rem;text-align:right;">
                 <span class="ai-item-del" data-index="${idx}">×</span>
+                <select class="ai-item-assign">${memberOpts}</select>
             </div>`;
     });
 
     if (receiptMeta && (receiptMeta.subtotal || receiptMeta.grandTotal)) {
-        html += '<div class="ai-breakdown">';
+        html += '<div class="ai-breakdown" id="aiBreakdown">';
         if (receiptMeta.subtotal) {
-            html += `<div class="ai-breakdown-row"><span>Subtotal</span><span>${formatCurrency(receiptMeta.subtotal, state.baseCurrency)}</span></div>`;
+            html += `<div class="ai-breakdown-row"><span>Subtotal</span><span id="aiSubtotal">${formatCurrency(receiptMeta.subtotal, state.baseCurrency)}</span></div>`;
         }
         if (receiptMeta.tax) {
-            html += `<div class="ai-breakdown-row"><span>Tax / SST</span><span>${formatCurrency(receiptMeta.tax, state.baseCurrency)}</span></div>`;
+            html += `<div class="ai-breakdown-row"><span>Tax / SST</span><span id="aiTax">${formatCurrency(receiptMeta.tax, state.baseCurrency)}</span></div>`;
         }
         if (receiptMeta.serviceCharge) {
-            html += `<div class="ai-breakdown-row"><span>Service Charge</span><span>${formatCurrency(receiptMeta.serviceCharge, state.baseCurrency)}</span></div>`;
+            html += `<div class="ai-breakdown-row"><span>Service Charge</span><span id="aiService">${formatCurrency(receiptMeta.serviceCharge, state.baseCurrency)}</span></div>`;
         }
-        html += `<div class="ai-breakdown-row" style="font-weight:700;border-top:1px solid var(--border);padding-top:6px;"><span>Grand Total</span><span>${formatCurrency(receiptMeta.grandTotal || sum, state.baseCurrency)}</span></div>`;
+        html += `<div class="ai-breakdown-row" style="font-weight:700;border-top:1px solid var(--border);padding-top:6px;"><span>Grand Total</span><span id="aiGrandTotal">${formatCurrency(receiptMeta.grandTotal || sum, state.baseCurrency)}</span></div>`;
         if (receiptMeta.isTaxInclusive) {
             html += '<div class="ai-breakdown-note">📌 Tax is included in item prices</div>';
         }
@@ -1176,21 +1214,35 @@ function displayAiResults(items, receiptMeta = null) {
     $('#receiptPayerArea').classList.remove('hidden');
 
     container._aiItems = items;
+    container._receiptMeta = orig;
+
+    function refreshAll() {
+        let t = 0;
+        container.querySelectorAll('.ai-edit-amount').forEach(i => t += parseFloat(i.value) || 0);
+        const totalEl = $('#aiResultTotal');
+        if (totalEl) totalEl.textContent = formatCurrency(t, state.baseCurrency);
+
+        // Recalc breakdown proportionally
+        if (container._receiptMeta) {
+            const m = container._receiptMeta;
+            const originalSum = m.origSubtotal || 1;
+            const ratio = t / originalSum;
+            const newSub = $('#aiSubtotal'); if (newSub) newSub.textContent = formatCurrency(t, state.baseCurrency);
+            const newTax = $('#aiTax'); if (newTax) newTax.textContent = formatCurrency(m.tax * ratio, state.baseCurrency);
+            const newSvc = $('#aiService'); if (newSvc) newSvc.textContent = formatCurrency(m.serviceCharge * ratio, state.baseCurrency);
+            const newGt = $('#aiGrandTotal');
+            if (newGt) newGt.textContent = formatCurrency(t + (m.tax || 0) * ratio + (m.serviceCharge || 0) * ratio, state.baseCurrency);
+        }
+    }
 
     container.querySelectorAll('.ai-edit-amount').forEach(inp => {
-        inp.addEventListener('input', () => {
-            let t = 0;
-            container.querySelectorAll('.ai-edit-amount').forEach(i => t += parseFloat(i.value) || 0);
-            $('#aiResultTotal').textContent = formatCurrency(t, state.baseCurrency);
-        });
+        inp.addEventListener('input', refreshAll);
     });
 
     container.querySelectorAll('.ai-item-del').forEach(btn => {
         btn.addEventListener('click', () => {
             btn.closest('.ai-result-item').remove();
-            let t = 0;
-            container.querySelectorAll('.ai-edit-amount').forEach(i => t += parseFloat(i.value) || 0);
-            $('#aiResultTotal').textContent = formatCurrency(t, state.baseCurrency);
+            refreshAll();
             if (container.querySelectorAll('.ai-result-item').length === 0) {
                 container.classList.add('hidden');
                 $('#receiptPayerArea').classList.add('hidden');
@@ -1206,7 +1258,8 @@ function getAiEditedItems() {
     $$('#aiResult .ai-result-item').forEach(row => {
         const desc = row.querySelector('.ai-edit-desc').value.trim();
         const amount = parseFloat(row.querySelector('.ai-edit-amount').value);
-        if (desc && amount > 0) items.push({ desc, amount });
+        const assign = row.querySelector('.ai-item-assign')?.value || 'all';
+        if (desc && amount > 0) items.push({ desc, amount, assign });
     });
     return items;
 }
@@ -1220,13 +1273,17 @@ $('#addReceiptItemsBtn').addEventListener('click', () => {
         $$('.manual-item-row').forEach(row => {
             const desc = row.querySelector('.manual-desc').value.trim();
             const amount = parseFloat(row.querySelector('.manual-amount').value);
-            if (desc && amount > 0) items.push({ desc, amount });
+            if (desc && amount > 0) items.push({ desc, amount, assign: 'all' });
         });
     }
 
     if (items.length === 0) { showToast('Enter at least one item', 'error'); return; }
 
     items.forEach(item => {
+        // Per-item assignment: individual person vs all members
+        const participants = item.assign && item.assign !== 'all'
+            ? [item.assign]
+            : [...state.members];
         state.expenses.push({
             id: Date.now() + Math.random(),
             desc: item.desc,
@@ -1234,7 +1291,7 @@ $('#addReceiptItemsBtn').addEventListener('click', () => {
             currency: state.baseCurrency,
             payer,
             splitMethod: 'equal',
-            participants: [...state.members],
+            participants,
             settled: false
         });
     });
@@ -1290,6 +1347,37 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('#receiptModal').classList.contains('hidden')) {
         closeReceiptModal();
     }
+});
+
+// ─── Expense Filters ────────────────────────
+
+function populateFilters() {
+    if (state.expenses.length === 0) {
+        $('#expenseFilterBar').classList.add('hidden');
+        return;
+    }
+    $('#expenseFilterBar').classList.remove('hidden');
+
+    const fP = $('#filterPayer');
+    const fI = $('#filterInvolved');
+    const savedP = fP.value;
+    const savedI = fI.value;
+    fP.innerHTML = '<option value="">👤 All Payers</option>' + state.members.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+    fI.innerHTML = '<option value="">👥 All Involved</option>' + state.members.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+    fP.value = savedP;
+    fI.value = savedI;
+}
+
+$('#filterPayer').addEventListener('change', () => { state.expenseFilter.payer = $('#filterPayer').value; renderExpenses(); });
+$('#filterInvolved').addEventListener('change', () => { state.expenseFilter.involved = $('#filterInvolved').value; renderExpenses(); });
+$('#filterPeriod').addEventListener('change', () => { state.expenseFilter.period = $('#filterPeriod').value; renderExpenses(); });
+$('#clearFiltersBtn').addEventListener('click', () => {
+    state.expenseFilter = { payer: '', involved: '', period: '' };
+    $('#filterPayer').value = '';
+    $('#filterInvolved').value = '';
+    $('#filterPeriod').value = '';
+    renderExpenses();
+    populateFilters();
 });
 
 // ─── Init ────────────────────────────────────
