@@ -195,7 +195,7 @@ function loadState() {
             const data = JSON.parse(raw);
             state.members = data.members || [];
             state.expenses = (data.expenses || []).map(e => ({ ...e, settled: e.settled || false, settledDate: e.settledDate || null }));
-            state.baseCurrency = data.baseCurrency || 'USD';
+            state.baseCurrency = data.baseCurrency || 'MYR';
             state.lang = data.lang || 'en';
         } catch (e) { console.error('Parse error:', e); }
     }
@@ -867,7 +867,7 @@ $('#importFileInput').addEventListener('change', (e) => {
             if (!data.members) throw new Error('Invalid');
             state.members = data.members;
             state.expenses = (data.expenses || []).map(ex => ({ ...ex, settled: ex.settled || false }));
-            state.baseCurrency = data.baseCurrency || 'USD';
+            state.baseCurrency = data.baseCurrency || 'MYR';
             $('#baseCurrency').value = state.baseCurrency;
             renderAll();
             showToast(_('imported'), 'success');
@@ -881,8 +881,8 @@ $('#clearBtn').addEventListener('click', () => {
     if (confirm(_('confirmClear'))) {
         state.members = [];
         state.expenses = [];
-        state.baseCurrency = 'USD';
-        $('#baseCurrency').value = 'USD';
+        state.baseCurrency = 'MYR';
+        $('#baseCurrency').value = 'MYR';
         renderAll();
         showToast(_('cleared'), 'info');
     }
