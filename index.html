@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bill Dealer - Smart Bill Splitting</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <h1>🧾 Bill Dealer</h1>
+            <p class="subtitle">Smart bill splitting for groups & trips</p>
+            <div class="header-actions">
+                <button id="langToggle" class="btn btn-sm btn-ghost" title="Switch Language">中文 ↓</button>
+                <button id="exportBtn" class="btn btn-sm btn-ghost" title="Export Backup">📤 Export</button>
+                <button id="importBtn" class="btn btn-sm btn-ghost" title="Import Backup">📥 Import</button>
+                <button id="clearBtn" class="btn btn-sm btn-danger-ghost" title="Clear All Data">🗑 Clear</button>
+            </div>
+        </header>
+
+        <!-- Section 1: Trip Settings -->
+        <section class="card" id="settingsSection">
+            <h2 class="section-title">⚙️ Trip Settings</h2>
+            <div class="settings-row">
+                <div class="form-group">
+                    <label for="baseCurrency">Base Currency</label>
+                    <select id="baseCurrency" class="select-input">
+                        <option value="USD">🇺🇸 USD - US Dollar</option>
+                        <option value="EUR">🇪🇺 EUR - Euro</option>
+                        <option value="GBP">🇬🇧 GBP - British Pound</option>
+                        <option value="JPY">🇯🇵 JPY - Japanese Yen</option>
+                        <option value="CNY">🇨🇳 CNY - Chinese Yuan</option>
+                        <option value="KRW">🇰🇷 KRW - Korean Won</option>
+                        <option value="TWD">🇹🇼 TWD - Taiwan Dollar</option>
+                        <option value="HKD">🇭🇰 HKD - Hong Kong Dollar</option>
+                        <option value="SGD">🇸🇬 SGD - Singapore Dollar</option>
+                        <option value="THB">🇹🇭 THB - Thai Baht</option>
+                        <option value="INR">🇮🇳 INR - Indian Rupee</option>
+                        <option value="AUD">🇦🇺 AUD - Australian Dollar</option>
+                        <option value="CAD">🇨🇦 CAD - Canadian Dollar</option>
+                    </select>
+                </div>
+            </div>
+            <div class="members-area">
+                <div class="members-header">
+                    <h3>👥 Members</h3>
+                    <div class="add-member-row">
+                        <input type="text" id="memberNameInput" class="text-input" placeholder="Member name" maxlength="30">
+                        <button id="addMemberBtn" class="btn btn-primary">+ Add</button>
+                    </div>
+                </div>
+                <div id="membersList" class="members-list">
+                    <p class="empty-hint">No members added yet</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: Quick Expense Entry -->
+        <section class="card" id="expenseSection">
+            <h2 class="section-title">💸 Add Expense</h2>
+            <div id="noMembersWarning" class="warning-banner">
+                ⚠️ Please add members in "Trip Settings" first
+            </div>
+            <form id="expenseForm" class="expense-form">
+                <div class="form-row">
+                    <div class="form-group flex-2">
+                        <label for="expenseDesc">Description</label>
+                        <input type="text" id="expenseDesc" class="text-input" placeholder="e.g., Dinner, Taxi, Hotel..." maxlength="100" required>
+                    </div>
+                    <div class="form-group flex-1">
+                        <label for="expenseAmount">Amount</label>
+                        <input type="number" id="expenseAmount" class="text-input" placeholder="0.00" min="0.01" step="0.01" required>
+                    </div>
+                    <div class="form-group flex-1">
+                        <label for="expenseCurrency">Currency</label>
+                        <select id="expenseCurrency" class="select-input">
+                            <option value="USD">🇺🇸 USD</option>
+                            <option value="EUR">🇪🇺 EUR</option>
+                            <option value="GBP">🇬🇧 GBP</option>
+                            <option value="JPY">🇯🇵 JPY</option>
+                            <option value="CNY">🇨🇳 CNY</option>
+                            <option value="KRW">🇰🇷 KRW</option>
+                            <option value="TWD">🇹🇼 TWD</option>
+                            <option value="HKD">🇭🇰 HKD</option>
+                            <option value="SGD">🇸🇬 SGD</option>
+                            <option value="THB">🇹🇭 THB</option>
+                            <option value="INR">🇮🇳 INR</option>
+                            <option value="AUD">🇦🇺 AUD</option>
+                            <option value="CAD">🇨🇦 CAD</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group flex-1">
+                        <label for="payerSelect">Paid By</label>
+                        <select id="payerSelect" class="select-input" required>
+                            <option value="">-- Select --</option>
+                        </select>
+                    </div>
+                    <div class="form-group flex-1">
+                        <label>Split Method</label>
+                        <div class="split-methods">
+                            <label class="radio-label">
+                                <input type="radio" name="splitMethod" value="equal" checked> Equal
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="splitMethod" value="custom"> Custom
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Split Among</label>
+                    <div id="participantsCheckboxes" class="checkboxes-grid">
+                        <p class="empty-hint">Add members first</p>
+                    </div>
+                </div>
+                <div id="customSplitArea" class="custom-split-area hidden">
+                    <label>Custom Split Amounts</label>
+                    <div id="customSplitInputs"></div>
+                </div>
+                <button type="submit" id="addExpenseBtn" class="btn btn-primary btn-lg" disabled>➕ Add Expense</button>
+            </form>
+            <div id="expensesList" class="expenses-list">
+                <p class="empty-hint">No expenses yet — add one above!</p>
+            </div>
+        </section>
+
+        <!-- Section 3: Settlement Plan -->
+        <section class="card" id="settlementSection">
+            <h2 class="section-title">💰 Settlement Plan</h2>
+            <div id="settlementContent">
+                <p class="empty-hint">No expenses to settle yet</p>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>💾 Data stored locally in your browser · Never uploaded to any server</p>
+        </footer>
+
+        <!-- Hidden file input for import -->
+        <input type="file" id="importFileInput" accept=".json" class="hidden">
+
+        <!-- Toast notification -->
+        <div id="toast" class="toast hidden"></div>
+
+        <!-- AI Receipt Scanner Modal -->
+        <div id="aiModal" class="modal-overlay hidden">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3>🤖 AI Receipt Scanner</h3>
+                    <button class="modal-close" id="closeAiModal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="modal-desc">Upload a receipt photo and let AI extract the items and amounts automatically.</p>
+                    <div class="upload-area" id="uploadArea">
+                        <div class="upload-placeholder">
+                            <span class="upload-icon">📸</span>
+                            <p>Click or drag receipt image here</p>
+                            <p class="upload-hint">Supports JPG, PNG, WEBP</p>
+                        </div>
+                        <input type="file" id="receiptImageInput" accept="image/*" class="hidden">
+                        <img id="receiptPreview" class="receipt-preview hidden" alt="Receipt preview">
+                    </div>
+                    <div id="aiResult" class="ai-result hidden"></div>
+                    <div class="modal-actions">
+                        <button id="scanReceiptBtn" class="btn btn-primary" disabled>🔍 Scan Receipt</button>
+                        <button id="addScannedItemsBtn" class="btn btn-success hidden">✅ Add to Expenses</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
