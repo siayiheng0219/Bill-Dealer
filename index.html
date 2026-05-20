@@ -69,6 +69,7 @@
                     <div class="form-group">
                         <label for="baseCurrency">Base Currency</label>
                         <select id="baseCurrency" class="select-input">
+                            <option value="MYR">🇲🇾 MYR</option>
                             <option value="USD">🇺🇸 USD</option>
                             <option value="EUR">🇪🇺 EUR</option>
                             <option value="GBP">🇬🇧 GBP</option>
@@ -123,7 +124,7 @@
                             <div class="form-group flex-1">
                                 <label for="expenseCurrency">Currency</label>
                                 <select id="expenseCurrency" class="select-input">
-                                    <option value="USD">🇺🇸 USD</option><option value="EUR">🇪🇺 EUR</option>
+                                    <option value="MYR">🇲🇾 MYR</option><option value="USD">🇺🇸 USD</option><option value="EUR">🇪🇺 EUR</option>
                                     <option value="GBP">🇬🇧 GBP</option><option value="JPY">🇯🇵 JPY</option>
                                     <option value="CNY">🇨🇳 CNY</option><option value="KRW">🇰🇷 KRW</option>
                                     <option value="TWD">🇹🇼 TWD</option><option value="HKD">🇭🇰 HKD</option>
@@ -200,6 +201,16 @@
 
         <!-- Tab: Settlement -->
         <section class="tab-panel" id="panel-settlement">
+            <!-- Per-Person Stats -->
+            <div id="memberStats" class="card" style="margin-bottom:10px;">
+                <div class="card-header collapsible" data-target="statsBody" style="padding:10px 12px;">
+                    <h3 style="font-size:0.82rem;font-weight:700;">📊 Per Person</h3>
+                    <span class="collapse-icon" style="font-size:0.55rem;">▼</span>
+                </div>
+                <div class="card-body" id="statsBody" style="padding:0 12px 10px;">
+                    <div id="statsGrid" class="stats-grid"></div>
+                </div>
+            </div>
             <div class="card">
                 <div class="card-header">
                     <h2 class="section-title"><span class="title-text">💰 Settlement Plan</span></h2>

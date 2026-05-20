@@ -7,7 +7,7 @@
 const state = {
     members: [],
     expenses: [],       // { id, desc, amount, currency, payer, splitMethod, participants, customShares?, settled, settledDate? }
-    baseCurrency: 'USD',
+    baseCurrency: 'MYR',
     lang: 'en',
     activeTab: 'expenses',
     expenseFilter: { payer: '', involved: '', period: '' }
@@ -15,13 +15,13 @@ const state = {
 
 // ─── Currency Data ───────────────────────────
 const currencySymbols = {
-    USD: '$', EUR: '€', GBP: '£', JPY: '¥', CNY: '¥',
+    MYR: 'RM', USD: '$', EUR: '€', GBP: '£', JPY: '¥', CNY: '¥',
     KRW: '₩', TWD: 'NT$', HKD: 'HK$', SGD: 'S$', THB: '฿',
     INR: '₹', AUD: 'A$', CAD: 'C$'
 };
 
 const currencyFlags = {
-    USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧', JPY: '🇯🇵', CNY: '🇨🇳',
+    MYR: '🇲🇾', USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧', JPY: '🇯🇵', CNY: '🇨🇳',
     KRW: '🇰🇷', TWD: '🇹🇼', HKD: '🇭🇰', SGD: '🇸🇬', THB: '🇹🇭',
     INR: '🇮🇳', AUD: '🇦🇺', CAD: '🇨🇦'
 };
@@ -464,9 +464,6 @@ function updateExpenseFormState() {
 // ─── Expenses List ───────────────────────────
 function renderExpenses() {
     const container = $('#expensesList');
-    // Also render stats
-    renderMemberStats();
-
     if (state.expenses.length === 0) {
         container.innerHTML = `<p class="empty-hint">${_('noExpenses')}</p>`;
         return;
@@ -697,9 +694,9 @@ function calculateSettlement() {
 }
 
 const exchangeRates = {
-    USD:1, EUR:0.92, GBP:0.79, JPY:149.5, CNY:7.24,
-    KRW:1325, TWD:31.5, HKD:7.82, SGD:1.34, THB:35.5,
-    INR:83.1, AUD:1.53, CAD:1.36
+    MYR:1, USD:4.40, EUR:4.05, GBP:3.48, JPY:0.029, CNY:0.60,
+    KRW:0.0033, TWD:0.14, HKD:0.56, SGD:3.30, THB:0.12,
+    INR:0.053, AUD:2.90, CAD:3.24
 };
 
 function getExchangeRate(from, to) {
@@ -709,6 +706,8 @@ function getExchangeRate(from, to) {
 
 function renderSettlement() {
     const container = $('#settlementContent');
+    // Render per-person stats
+    renderMemberStats();
     const result = calculateSettlement();
 
     if (!result.hasExpenses) {
