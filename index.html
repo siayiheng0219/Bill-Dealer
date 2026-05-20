@@ -191,14 +191,14 @@
                             <button type="button" id="toggleApiKey" class="btn btn-xs btn-ghost">👁</button>
                         </div>
                     </div>
-                    <div class="upload-area" id="uploadArea">
+                    <label class="upload-area" id="uploadArea" for="receiptImageInput">
                         <div class="upload-placeholder">
                             <span class="upload-icon">📷</span>
                             <p>Tap to take photo or upload</p>
                             <p class="upload-hint">Snap a receipt → AI extracts items automatically</p>
                         </div>
-                        <input type="file" id="receiptImageInput" accept="image/*" capture="environment" class="hidden">
-                    </div>
+                        <input type="file" id="receiptImageInput" accept="image/*" class="hidden">
+                    </label>
                     <div class="receipt-preview-wrapper hidden" id="receiptPreviewWrapper">
                         <img id="receiptPreview" class="receipt-preview" alt="Receipt">
                         <button id="retakePhotoBtn" class="btn btn-xs btn-ghost">↺ Retake</button>

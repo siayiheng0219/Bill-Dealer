@@ -864,7 +864,13 @@ let receiptImageDataUrl = null; // Store the resized receipt image for AI scanni
 function resetReceiptModal() {
     $('#receiptPreview').src = '';
     $('#receiptPreviewWrapper').classList.add('hidden');
-    $('#uploadArea').querySelector('.upload-placeholder').classList.remove('hidden');
+    // Restore upload placeholder
+    const ph = $('#uploadArea').querySelector('.upload-placeholder');
+    ph.classList.remove('hidden');
+    ph.innerHTML = `
+        <span class="upload-icon">📷</span>
+        <p>Tap to take photo or upload</p>
+        <p class="upload-hint">Snap a receipt → AI extracts items automatically</p>`;
     $('#scanActions').classList.add('hidden');
     $('#aiLoading').classList.add('hidden');
     $('#aiResult').classList.add('hidden');
@@ -876,8 +882,8 @@ function resetReceiptModal() {
     clearManualItems();
 }
 
-// Upload
-$('#uploadArea').addEventListener('click', () => $('#receiptImageInput').click());
+// Upload — label's "for" attribute handles file picker natively (works on all browsers)
+// Drag & drop as bonus
 $('#uploadArea').addEventListener('dragover', (e) => { e.preventDefault(); $('#uploadArea').classList.add('dragover'); });
 $('#uploadArea').addEventListener('dragleave', () => $('#uploadArea').classList.remove('dragover'));
 $('#uploadArea').addEventListener('drop', (e) => {
@@ -891,9 +897,28 @@ $('#receiptImageInput').addEventListener('change', (e) => {
 });
 
 function processReceiptImage(file) {
+    // Show loading feedback
+    $('#uploadArea').querySelector('.upload-placeholder').innerHTML = `
+        <span class="upload-icon">⏳</span>
+        <p>Processing image...</p>`;
+
     const reader = new FileReader();
+    reader.onerror = () => {
+        showToast('Failed to read image file', 'error');
+        $('#uploadArea').querySelector('.upload-placeholder').innerHTML = `
+            <span class="upload-icon">📷</span>
+            <p>Tap to take photo or upload</p>
+            <p class="upload-hint">Snap a receipt → AI extracts items automatically</p>`;
+    };
     reader.onload = (ev) => {
         const img = new Image();
+        img.onerror = () => {
+            showToast('Failed to load image — try a different format', 'error');
+            $('#uploadArea').querySelector('.upload-placeholder').innerHTML = `
+                <span class="upload-icon">📷</span>
+                <p>Tap to take photo or upload</p>
+                <p class="upload-hint">Snap a receipt → AI extracts items automatically</p>`;
+        };
         img.onload = () => {
             // Resize to max 1024px for performance
             const maxW = 1024;

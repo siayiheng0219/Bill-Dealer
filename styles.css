@@ -768,6 +768,7 @@ body {
 
 /* Upload Area */
 .upload-area {
+    display: block;
     border: 2px dashed var(--border);
     border-radius: var(--radius-sm);
     padding: 36px 16px;
