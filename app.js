@@ -946,19 +946,16 @@ function processReceiptImage(file) {
     reader.readAsDataURL(file);
 }
 
-// AI Scan button
+// AI Scan button — 3-tier fallback: Server → Local Key → Manual
 $('#aiScanBtn2').addEventListener('click', () => {
-    const apiKey = $('#geminiApiKey').value.trim();
-    if (!apiKey) {
-        showToast('Enter your Gemini API key first (free at aistudio.google.com)', 'error');
-        return;
-    }
     if (!receiptImageDataUrl) {
         showToast('Please upload a receipt image first', 'error');
         return;
     }
-    saveGeminiApiKey(apiKey);
-    runGeminiScan(apiKey, receiptImageDataUrl);
+    // Save any key entered (used as fallback)
+    const localKey = $('#geminiApiKey').value.trim();
+    if (localKey) saveGeminiApiKey(localKey);
+    runReceiptScan(receiptImageDataUrl, localKey);
 });
 
 // Manual entry fallback
@@ -984,106 +981,160 @@ $('#retakePhotoBtn').addEventListener('click', () => {
     clearManualItems();
 });
 
-// ─── Gemini AI Scan ──────────────────────────
-async function runGeminiScan(apiKey, imageDataUrl) {
+// ─── Receipt Scanner — 3-Tier Fallback ──────
+// Tier 1: Vercel /api/split-receipt (server key, FREE, 10s timeout)
+// Tier 2: Local Gemini key (user's own, FREE, 10s timeout)
+// Tier 3: Manual entry
+
+async function runReceiptScan(imageDataUrl, localKey) {
     $('#scanActions').classList.add('hidden');
     $('#aiLoading').classList.remove('hidden');
     $('#aiResult').classList.add('hidden');
     $('#manualEntrySection').classList.add('hidden');
 
+    // Update loading text to show which tier we're on
+    const loadingText = $('#aiLoading p');
+
+    // ── Tier 1: Try server proxy ──
+    loadingText.textContent = 'Tier 1: Trying server proxy...';
+    const serverResult = await tryServerScan(imageDataUrl);
+    if (serverResult) {
+        displayScanResult(serverResult);
+        return;
+    }
+
+    // ── Tier 2: Try local Gemini key ──
+    if (localKey) {
+        loadingText.textContent = 'Tier 2: Trying your Gemini key...';
+        const geminiResult = await tryGeminiScan(imageDataUrl, localKey);
+        if (geminiResult) {
+            displayScanResult(geminiResult);
+            return;
+        }
+    }
+
+    // ── Tier 3: Both failed — offer manual entry ──
+    $('#aiLoading').classList.add('hidden');
+    showToast('Auto-scan unavailable — enter items manually below', 'info');
+    $('#manualEntrySection').classList.remove('hidden');
+    $('#receiptPayerArea').classList.remove('hidden');
+    initManualItems();
+}
+
+// Tier 1: Call Vercel serverless function
+async function tryServerScan(imageDataUrl) {
     try {
-        // Strip the data URL prefix, keep only base64
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000); // 10s like TravelSplit
+
+        const res = await fetch('/api/split-receipt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: imageDataUrl }),
+            signal: controller.signal
+        });
+        clearTimeout(timeout);
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            console.warn('[ReceiptScan] Tier 1 failed:', res.status, err.error || '');
+            return null;
+        }
+
+        const result = await res.json();
+        if (!result.items || result.items.length === 0) {
+            console.warn('[ReceiptScan] Tier 1: no items in response');
+            return null;
+        }
+
+        console.log('[ReceiptScan] Tier 1 SUCCESS — server proxy');
+        return result;
+    } catch (err) {
+        console.warn('[ReceiptScan] Tier 1 error:', err.name, err.message);
+        return null;
+    }
+}
+
+// Tier 2: Call Gemini directly with user's key
+async function tryGeminiScan(imageDataUrl, apiKey) {
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+
         const base64Data = imageDataUrl.replace(/^data:image\/\w+;base64,/, '');
 
-        const response = await fetch(
+        const res = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{
-                        parts: [{
-                            text: `You are a precise restaurant receipt OCR expert. Analyze this receipt image carefully:
+                        parts: [
+                            {
+                                text: `你是一个精准的餐厅小票收据 OCR 专家。请仔细分析这张图片，执行以下任务：
 
-1. Extract ALL line items with their names and individual prices.
-2. Identify global amounts: subtotal, tax/SST, service charge, grand total (final amount paid).
-3. Determine tax type: if the sum of all item prices ≈ grand total, tax is inclusive (isTaxInclusive=true); otherwise isTaxInclusive=false.
-4. Output STRICT JSON: {"isTaxInclusive":true,"subtotal":95,"tax":5,"serviceCharge":9.5,"grandTotal":109.5,"items":[{"name":"Item Name","price":38.00}]}
-No markdown, no \`\`\`json, no explanation — ONLY the raw JSON object.`
-                        }, {
-                            inlineData: {
-                                mimeType: 'image/jpeg',
-                                data: base64Data
-                            }
-                        }]
+1. 提取小票上所有消费菜品/单项的名称和单价。
+2. 识别出小票的全局金额：Subtotal（小计）、Tax / SST（税费）、Service Charge（服务费）、Grand Total（最终实付总额）。
+3. 判断价内税还是价外税：所有菜品单价之和≈Grand Total 则为价内税，isTaxInclusive=true；否则 isTaxInclusive=false。
+4. 输出 JSON 结构严格为：{"isTaxInclusive":true,"subtotal":95,"tax":5,"serviceCharge":9.5,"grandTotal":109.5,"items":[{"name":"菜品名","price":38.00}]}
+不要包含任何 markdown、\`\`\`json 或废话。`
+                            },
+                            { inlineData: { mimeType: 'image/jpeg', data: base64Data } }
+                        ]
                     }],
-                    generationConfig: {
-                        temperature: 0.1,
-                        maxOutputTokens: 1024
-                    }
-                })
+                    generationConfig: { temperature: 0.1, maxOutputTokens: 1024 }
+                }),
+                signal: controller.signal
             }
         );
+        clearTimeout(timeout);
 
-        $('#aiLoading').classList.add('hidden');
-
-        if (!response.ok) {
-            const errText = await response.text().catch(() => '');
-            const msg = `Gemini API error (${response.status}): ${errText.slice(0, 200)}`;
-            console.error('[ReceiptScan]', msg);
-            showToast('AI scan failed — try manual entry below', 'error');
-            $('#scanActions').classList.remove('hidden');
-            return;
+        if (!res.ok) {
+            const errText = await res.text().catch(() => '');
+            console.warn('[ReceiptScan] Tier 2 failed:', res.status, errText.slice(0, 200));
+            return null;
         }
 
-        const data = await response.json();
+        const data = await res.json();
         const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-        // Robust JSON parsing — try direct parse, then regex extraction
+        // Parse JSON with regex fallback
         let result;
-        try {
-            result = JSON.parse(rawText.trim());
-        } catch {
-            // Fallback: extract the first { ... } JSON object from the text
+        try { result = JSON.parse(rawText.trim()); } catch {
             const match = rawText.match(/\{[\s\S]*\}/);
-            if (!match) {
-                console.error('[ReceiptScan] Parse failed, raw:', rawText?.slice(0, 300));
-                showToast('AI response could not be parsed. Try manual entry.', 'error');
-                $('#scanActions').classList.remove('hidden');
-                return;
-            }
+            if (!match) return null;
             result = JSON.parse(match[0]);
         }
 
-        const items = result.items || [];
-        if (!Array.isArray(items) || items.length === 0) {
-            showToast('No items detected in receipt. Try manual entry.', 'info');
-            $('#scanActions').classList.remove('hidden');
-            return;
-        }
+        if (!result.items || result.items.length === 0) return null;
 
-        // Build receipt summary
-        const receiptMeta = {
-            subtotal: result.subtotal || 0,
-            tax: result.tax || 0,
-            serviceCharge: result.serviceCharge || 0,
-            grandTotal: result.grandTotal || 0,
-            isTaxInclusive: result.isTaxInclusive || false
-        };
-
-        // Map items to our format { desc, amount }
-        const mappedItems = items.map(it => ({
-            desc: it.name || it.desc || 'Item',
-            amount: it.price || it.amount || 0
-        }));
-
-        displayAiResults(mappedItems, receiptMeta);
+        console.log('[ReceiptScan] Tier 2 SUCCESS — local Gemini key');
+        return result;
     } catch (err) {
-        $('#aiLoading').classList.add('hidden');
-        console.error('[ReceiptScan] Error:', err.message);
-        showToast('AI scan failed — try manual entry', 'error');
-        $('#scanActions').classList.remove('hidden');
+        console.warn('[ReceiptScan] Tier 2 error:', err.name, err.message);
+        return null;
     }
+}
+
+// Display scan result (shared by Tier 1 & 2)
+function displayScanResult(result) {
+    $('#aiLoading').classList.add('hidden');
+
+    const items = (result.items || []).map(it => ({
+        desc: it.name || it.desc || 'Item',
+        amount: it.price || it.amount || 0
+    }));
+
+    const meta = {
+        subtotal: result.subtotal || 0,
+        tax: result.tax || 0,
+        serviceCharge: result.serviceCharge || 0,
+        grandTotal: result.grandTotal || 0,
+        isTaxInclusive: result.isTaxInclusive || false
+    };
+
+    displayAiResults(items, meta);
 }
 
 function displayAiResults(items, receiptMeta = null) {
