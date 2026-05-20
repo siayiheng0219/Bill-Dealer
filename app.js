@@ -1040,7 +1040,7 @@ async function callChatAPI(url, apiKey, model, ocrText, extraHeaders = {}) {
             model,
             messages: [
                 { role: 'system', content: RECEIPT_SYSTEM },
-                { role: 'user', content: `OCR Text:\n${ocrText}\n\nReturn JSON: ${'{"isTaxInclusive":false,"subtotal":192,"tax":0,"serviceCharge":19.2,"grandTotal":217.2,"items":[{"name":"Item","price":38.00}]}'}` },
+                { role: 'user', content: `OCR Text:\n${ocrText}\n\nExtract the REAL values from the text above. Do NOT copy the example zeros — use the actual numbers found in the OCR. Return JSON in this shape: ${'{"isTaxInclusive":false,"subtotal":0,"tax":0,"serviceCharge":0,"grandTotal":0,"items":[{"name":"EXAMPLE","price":0}]}'}` },
             ],
             response_format: { type: 'json_object' },
             temperature: 0.1,

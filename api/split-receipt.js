@@ -19,7 +19,7 @@ RULES:
 - Totals: copy the EXACT number after SUBTOTAL, TAX, SERVICE CHARGE, GRANDTOTAL labels. Never calculate.
 - isTaxInclusive: false if service charge or tax is listed separately.`;
 
-const JSON_SCHEMA = '{"isTaxInclusive":false,"subtotal":192,"tax":0,"serviceCharge":19.2,"grandTotal":217.2,"items":[{"name":"Item Name","price":38.00}]}';
+const JSON_SCHEMA = '{"isTaxInclusive":false,"subtotal":0,"tax":0,"serviceCharge":0,"grandTotal":0,"items":[{"name":"EXAMPLE","price":0}]}';
 
 const cors = {
     'Access-Control-Allow-Origin': '*',
@@ -39,7 +39,7 @@ async function callAI(url, apiKey, model, ocrText, extraHeaders = {}) {
             model,
             messages: [
                 { role: 'system', content: SYSTEM_PROMPT },
-                { role: 'user', content: `OCR Text:\n${ocrText}\n\nRespond with JSON matching: ${JSON_SCHEMA}` },
+                { role: 'user', content: `OCR Text:\n${ocrText}\n\nExtract the REAL values from the text above. Do NOT copy the example zeros — use the actual numbers found in the OCR. Return JSON in this shape: ${JSON_SCHEMA}` },
             ],
             response_format: { type: 'json_object' },
             temperature: 0.1,
