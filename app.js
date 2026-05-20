@@ -6,7 +6,7 @@
 // ─── State ───────────────────────────────────
 const state = {
     members: [],
-    expenses: [],       // { id, desc, amount, currency, payer, splitMethod, participants, customShares?, settled, date }
+    expenses: [],       // { id, desc, amount, currency, payer, splitMethod, participants, customShares?, settled, settledDate? }
     baseCurrency: 'USD',
     lang: 'en',
     activeTab: 'expenses',
@@ -194,7 +194,7 @@ function loadState() {
         try {
             const data = JSON.parse(raw);
             state.members = data.members || [];
-            state.expenses = (data.expenses || []).map(e => ({ ...e, settled: e.settled || false }));
+            state.expenses = (data.expenses || []).map(e => ({ ...e, settled: e.settled || false, settledDate: e.settledDate || null }));
             state.baseCurrency = data.baseCurrency || 'USD';
             state.lang = data.lang || 'en';
         } catch (e) { console.error('Parse error:', e); }
@@ -464,6 +464,9 @@ function updateExpenseFormState() {
 // ─── Expenses List ───────────────────────────
 function renderExpenses() {
     const container = $('#expensesList');
+    // Also render stats
+    renderMemberStats();
+
     if (state.expenses.length === 0) {
         container.innerHTML = `<p class="empty-hint">${_('noExpenses')}</p>`;
         return;
@@ -492,10 +495,12 @@ function renderExpenses() {
     if (filtered.length === 0) {
         html += `<p class="empty-hint">${hasFilter ? 'No matching expenses' : _('noExpenses')}</p>`;
     } else {
-        html += filtered.map((e, i) => {
+        html += filtered.map((e) => {
+            const realIdx = state.expenses.indexOf(e);
             const dateStr = new Date(e.id).toLocaleDateString();
+            const settledStr = e.settledDate ? ` <span class="settled-date-tag">✓ ${new Date(e.settledDate).toLocaleDateString()}</span>` : '';
             return `
-        <div class="expense-item${e.settled ? ' settled' : ''}" data-index="${state.expenses.indexOf(e)}">
+        <div class="expense-item${e.settled ? ' settled' : ''}" data-index="${realIdx}">
             <div class="settled-check">✓</div>
             <div class="settled-indicator"></div>
             <div class="expense-info">
@@ -503,11 +508,12 @@ function renderExpenses() {
                 <div class="expense-meta">
                     <span>👤 ${escapeHtml(e.payer)}</span>
                     <span>👥 ${e.participants.map(p => escapeHtml(p)).join(', ')}</span>
-                    <span>📅 ${dateStr}</span>
+                    <span>📅 ${dateStr}${settledStr}</span>
                 </div>
             </div>
             <span class="expense-amount">${getFlag(e.currency)} ${formatCurrency(e.amount, e.currency)}</span>
-            <span class="delete-expense" data-index="${state.expenses.indexOf(e)}">×</span>
+            <button class="edit-btn" data-index="${realIdx}" title="Edit">✎</button>
+            <span class="delete-expense" data-index="${realIdx}">×</span>
         </div>`;
         }).join('');
     }
@@ -515,13 +521,40 @@ function renderExpenses() {
     container.innerHTML = html;
 }
 
-// Toggle settled on expense click (but not on delete button)
+// Toggle settled / edit / delete on expense click
 $('#expensesList').addEventListener('click', (e) => {
+    // Edit button
+    if (e.target.classList.contains('edit-btn')) {
+        e.stopPropagation();
+        startEditExpense(parseInt(e.target.dataset.index));
+        return;
+    }
+    // Cancel edit
+    if (e.target.classList.contains('cancel-edit-btn')) {
+        e.stopPropagation();
+        renderExpenses();
+        return;
+    }
+    // Save edit
+    if (e.target.classList.contains('save-edit-btn')) {
+        e.stopPropagation();
+        const item = e.target.closest('.expense-item');
+        const idx = parseInt(item.dataset.index);
+        const desc = item.querySelector('.edit-desc').value.trim();
+        const amount = parseFloat(item.querySelector('.edit-amount').value);
+        if (desc && amount > 0) {
+            state.expenses[idx].desc = desc;
+            state.expenses[idx].amount = amount;
+            state.expenses[idx].payer = item.querySelector('.edit-payer').value;
+        }
+        renderAll();
+        showToast('Expense updated', 'success');
+        return;
+    }
     // Delete button
     if (e.target.classList.contains('delete-expense')) {
         e.stopPropagation();
-        const idx = parseInt(e.target.dataset.index);
-        state.expenses.splice(idx, 1);
+        state.expenses.splice(parseInt(e.target.dataset.index), 1);
         renderAll();
         showToast(_('expenseDeleted'), 'info');
         return;
@@ -529,12 +562,82 @@ $('#expensesList').addEventListener('click', (e) => {
 
     // Toggle settled on the expense item
     const item = e.target.closest('.expense-item');
-    if (!item) return;
+    if (!item || item.classList.contains('editing')) return;
     const idx = parseInt(item.dataset.index);
     state.expenses[idx].settled = !state.expenses[idx].settled;
+    state.expenses[idx].settledDate = state.expenses[idx].settled ? Date.now() : null;
     renderAll();
     showToast(state.expenses[idx].settled ? _('expenseSettled') : _('expenseUnsettled'), 'success');
 });
+
+// ─── Edit Expense Inline ─────────────────────
+function startEditExpense(idx) {
+    const e = state.expenses[idx];
+    const items = $$('.expense-item');
+    const item = Array.from(items).find(el => parseInt(el.dataset.index) === idx);
+    if (!item) return;
+
+    item.classList.add('editing');
+    const payerOpts = state.members.map(m => `<option value="${escapeHtml(m)}" ${m === e.payer ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('');
+
+    // Remove existing content, append edit fields
+    item.querySelectorAll('.settled-check,.settled-indicator,.expense-info,.expense-amount,.edit-btn,.delete-expense').forEach(el => el.remove());
+    item.insertAdjacentHTML('beforeend', `
+        <div class="edit-row">
+            <input type="text" class="edit-desc" value="${escapeHtml(e.desc)}" placeholder="Description">
+            <input type="number" class="edit-amount" value="${e.amount}" step="0.01" min="0.01">
+            <select class="edit-payer">${payerOpts}</select>
+        </div>
+        <div class="edit-actions">
+            <button class="cancel-edit-btn btn btn-xs btn-ghost">Cancel</button>
+            <button class="save-edit-btn btn btn-xs btn-primary">Save</button>
+        </div>`);
+}
+
+// ─── Member Stats ────────────────────────────
+function renderMemberStats() {
+    const grid = $('#statsGrid');
+    if (state.members.length === 0 || state.expenses.length === 0) {
+        grid.innerHTML = '<p class="empty-hint" style="grid-column:1/-1;padding:8px 0;">Add members & expenses to see stats</p>';
+        return;
+    }
+
+    const stats = {};
+    state.members.forEach(m => { stats[m] = { paid: 0, owed: 0, count: 0, involved: 0 }; });
+
+    state.expenses.forEach(e => {
+        const rate = getExchangeRate(e.currency, state.baseCurrency);
+        const amountBase = e.amount * rate;
+        if (stats[e.payer]) {
+            stats[e.payer].paid += amountBase;
+            stats[e.payer].count++;
+        }
+        const share = amountBase / (e.participants.length || 1);
+        e.participants.forEach(p => {
+            if (stats[p]) {
+                stats[p].owed += share;
+                stats[p].involved++;
+            }
+        });
+    });
+
+    grid.innerHTML = state.members.map((m, i) => {
+        const s = stats[m];
+        const net = s.paid - s.owed;
+        const netCls = net > 0.005 ? 'pos' : (net < -0.005 ? 'neg' : '');
+        const netSign = net > 0.005 ? '+' : (net < -0.005 ? '-' : '');
+        return `
+        <div class="stat-card">
+            <div class="stat-name">
+                <span class="member-avatar" style="background:${getMemberColor(i)};width:20px;height:20px;font-size:0.6rem;">${getMemberInitial(m)}</span>
+                ${escapeHtml(m)}
+            </div>
+            <div class="stat-row"><span>Paid</span><span>${formatCurrency(s.paid, state.baseCurrency)}</span></div>
+            <div class="stat-row"><span>Owes</span><span>${formatCurrency(s.owed, state.baseCurrency)}</span></div>
+            <div class="stat-net ${netCls}">Net: ${netSign}${formatCurrency(Math.abs(net), state.baseCurrency)}</div>
+        </div>`;
+    }).join('');
+}
 
 // ─── Settlement ──────────────────────────────
 function calculateSettlement() {
@@ -655,6 +758,18 @@ function renderSettlement() {
     }
 
     html += '</div>';
+
+    // Settlement history: recently settled expenses
+    const settledExpenses = state.expenses.filter(e => e.settled && e.settledDate);
+    if (settledExpenses.length > 0) {
+        html += '<div class="settlement-history"><h4>📋 Recently Settled</h4>';
+        settledExpenses.slice(-5).reverse().forEach(e => {
+            const dateStr = new Date(e.settledDate).toLocaleDateString();
+            html += `<div class="ai-breakdown-row"><span>✓ ${escapeHtml(e.desc)}</span><span>${dateStr}</span></div>`;
+        });
+        html += '</div>';
+    }
+
     container.innerHTML = html;
 }
 
@@ -1168,8 +1283,11 @@ function displayAiResults(items, receiptMeta = null) {
     const container = $('#aiResult');
     const sum = items.reduce((s, i) => s + (i.amount || 0), 0);
 
-    // Store original receipt meta for proportional recalc
-    const orig = receiptMeta ? { ...receiptMeta, origSubtotal: receiptMeta.subtotal || sum } : null;
+    // Derive initial rates from AI result, or default to 0
+    const origSub = (receiptMeta && receiptMeta.subtotal) ? receiptMeta.subtotal : sum;
+    const taxRate = (receiptMeta && receiptMeta.tax && origSub > 0) ? (receiptMeta.tax / origSub) * 100 : 0;
+    const svcRate = (receiptMeta && receiptMeta.serviceCharge && origSub > 0) ? (receiptMeta.serviceCharge / origSub) * 100 : 0;
+    const initDiscount = receiptMeta && receiptMeta.discount ? receiptMeta.discount : 0;
 
     let html = '<h4>🤖 AI Extracted Items (edit if needed)</h4>';
 
@@ -1185,23 +1303,17 @@ function displayAiResults(items, receiptMeta = null) {
             </div>`;
     });
 
-    if (receiptMeta && (receiptMeta.subtotal || receiptMeta.grandTotal)) {
-        html += '<div class="ai-breakdown" id="aiBreakdown">';
-        if (receiptMeta.subtotal) {
-            html += `<div class="ai-breakdown-row"><span>Subtotal</span><span id="aiSubtotal">${formatCurrency(receiptMeta.subtotal, state.baseCurrency)}</span></div>`;
-        }
-        if (receiptMeta.tax) {
-            html += `<div class="ai-breakdown-row"><span>Tax / SST</span><span id="aiTax">${formatCurrency(receiptMeta.tax, state.baseCurrency)}</span></div>`;
-        }
-        if (receiptMeta.serviceCharge) {
-            html += `<div class="ai-breakdown-row"><span>Service Charge</span><span id="aiService">${formatCurrency(receiptMeta.serviceCharge, state.baseCurrency)}</span></div>`;
-        }
-        html += `<div class="ai-breakdown-row" style="font-weight:700;border-top:1px solid var(--border);padding-top:6px;"><span>Grand Total</span><span id="aiGrandTotal">${formatCurrency(receiptMeta.grandTotal || sum, state.baseCurrency)}</span></div>`;
-        if (receiptMeta.isTaxInclusive) {
-            html += '<div class="ai-breakdown-note">📌 Tax is included in item prices</div>';
-        }
-        html += '</div>';
+    // Editable breakdown with real math
+    html += '<div class="ai-breakdown" id="aiBreakdown">';
+    html += `<div class="ai-breakdown-row"><span>Subtotal (items sum)</span><span id="aiSubtotal">${formatCurrency(sum, state.baseCurrency)}</span></div>`;
+    html += `<div class="ai-breakdown-row"><span>Tax Rate %</span><span><input type="number" class="breakdown-edit" id="aiTaxRate" value="${taxRate.toFixed(1)}" step="0.1" min="0"> % → <span id="aiTax">${formatCurrency((receiptMeta && receiptMeta.tax) || 0, state.baseCurrency)}</span></span></div>`;
+    html += `<div class="ai-breakdown-row"><span>Service Charge %</span><span><input type="number" class="breakdown-edit" id="aiSvcRate" value="${svcRate.toFixed(1)}" step="0.1" min="0"> % → <span id="aiService">${formatCurrency((receiptMeta && receiptMeta.serviceCharge) || 0, state.baseCurrency)}</span></span></div>`;
+    html += `<div class="ai-breakdown-row"><span>Discount</span><span><input type="number" class="breakdown-edit" id="aiDiscount" value="${initDiscount}" step="0.01" min="0"></span></div>`;
+    html += `<div class="ai-breakdown-row" style="font-weight:700;border-top:1px solid var(--border);padding-top:6px;"><span>Grand Total</span><span id="aiGrandTotal">${formatCurrency((receiptMeta && receiptMeta.grandTotal) || sum, state.baseCurrency)}</span></div>`;
+    if (receiptMeta && receiptMeta.isTaxInclusive) {
+        html += '<div class="ai-breakdown-note">📌 Tax is included in item prices</div>';
     }
+    html += '</div>';
 
     html += `
         <div class="ai-result-total">
@@ -1214,30 +1326,50 @@ function displayAiResults(items, receiptMeta = null) {
     $('#receiptPayerArea').classList.remove('hidden');
 
     container._aiItems = items;
-    container._receiptMeta = orig;
 
+    // Shared recalc: items sum → subtotal → tax = subtotal * rate% → svc = subtotal * rate% → discount → grand total
     function refreshAll() {
         let t = 0;
         container.querySelectorAll('.ai-edit-amount').forEach(i => t += parseFloat(i.value) || 0);
         const totalEl = $('#aiResultTotal');
         if (totalEl) totalEl.textContent = formatCurrency(t, state.baseCurrency);
 
-        // Recalc breakdown proportionally
-        if (container._receiptMeta) {
-            const m = container._receiptMeta;
-            const originalSum = m.origSubtotal || 1;
-            const ratio = t / originalSum;
-            const newSub = $('#aiSubtotal'); if (newSub) newSub.textContent = formatCurrency(t, state.baseCurrency);
-            const newTax = $('#aiTax'); if (newTax) newTax.textContent = formatCurrency(m.tax * ratio, state.baseCurrency);
-            const newSvc = $('#aiService'); if (newSvc) newSvc.textContent = formatCurrency(m.serviceCharge * ratio, state.baseCurrency);
-            const newGt = $('#aiGrandTotal');
-            if (newGt) newGt.textContent = formatCurrency(t + (m.tax || 0) * ratio + (m.serviceCharge || 0) * ratio, state.baseCurrency);
+        // Update subtotal
+        const subEl = $('#aiSubtotal');
+        if (subEl) subEl.textContent = formatCurrency(t, state.baseCurrency);
+
+        // Tax = subtotal * rate%
+        const taxRateEl = $('#aiTaxRate');
+        const taxEl = $('#aiTax');
+        if (taxRateEl && taxEl) {
+            const rate = parseFloat(taxRateEl.value) || 0;
+            taxEl.textContent = formatCurrency(t * rate / 100, state.baseCurrency);
+        }
+
+        // Service = subtotal * svcRate%
+        const svcRateEl = $('#aiSvcRate');
+        const svcEl = $('#aiService');
+        if (svcRateEl && svcEl) {
+            const rate = parseFloat(svcRateEl.value) || 0;
+            svcEl.textContent = formatCurrency(t * rate / 100, state.baseCurrency);
+        }
+
+        // Grand total = subtotal + tax + service - discount
+        const discEl = $('#aiDiscount');
+        const gtEl = $('#aiGrandTotal');
+        if (gtEl) {
+            const taxVal = taxRateEl ? t * (parseFloat(taxRateEl.value) || 0) / 100 : 0;
+            const svcVal = svcRateEl ? t * (parseFloat(svcRateEl.value) || 0) / 100 : 0;
+            const discVal = discEl ? (parseFloat(discEl.value) || 0) : 0;
+            gtEl.textContent = formatCurrency(t + taxVal + svcVal - discVal, state.baseCurrency);
         }
     }
 
-    container.querySelectorAll('.ai-edit-amount').forEach(inp => {
-        inp.addEventListener('input', refreshAll);
-    });
+    // Listen on all inputs
+    container.querySelectorAll('.ai-edit-amount').forEach(inp => inp.addEventListener('input', refreshAll));
+    const taxRateEl = $('#aiTaxRate'); if (taxRateEl) taxRateEl.addEventListener('input', refreshAll);
+    const svcRateEl = $('#aiSvcRate'); if (svcRateEl) svcRateEl.addEventListener('input', refreshAll);
+    const discEl = $('#aiDiscount'); if (discEl) discEl.addEventListener('input', refreshAll);
 
     container.querySelectorAll('.ai-item-del').forEach(btn => {
         btn.addEventListener('click', () => {
