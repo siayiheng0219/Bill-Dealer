@@ -1,13 +1,12 @@
 // ============================================================
 //  Vercel Edge Function — Receipt Scanner using Vercel AI SDK
 //
-//  Packages:  ai + @ai-sdk/google  (auto-installed by Vercel)
+//  Packages:  ai  (auto-installed by Vercel)
 //  Env var:   GOOGLE_GENERATIVE_AI_API_KEY  (auto-read by SDK)
 //  Free tier: 1.5K Gemini req/day + 1M Vercel calls/month
 // ============================================================
 
 import { generateText, Output } from 'ai';
-import { google } from '@ai-sdk/google';
 
 // Same OCR prompt as TravelSplit
 const PROMPT = `你是一个精准的餐厅小票收据 OCR 专家。请仔细分析这张图片，执行以下任务：
@@ -37,7 +36,7 @@ export async function POST(req) {
 
         // AI SDK: generateText with structured output + image input
         const { output } = await generateText({
-            model: google('gemini-2.5-flash'),
+            model: 'google/gemini-2.5-flash',
             output: Output.object({
                 schema: {
                     type: 'object',
