@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@ai-sdk/google": "^1.2.0",
     "ai": "^4.3.0"
   }
 }
