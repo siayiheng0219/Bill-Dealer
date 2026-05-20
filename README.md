@@ -10,7 +10,10 @@ A smart bill splitting app for groups & trips — inspired by [TravelSplit](http
 - **💰 Smart Settlement** — Calculates who pays whom to settle all debts with minimal transactions
 - **📤📥 Import/Export** — Backup & restore all your data as JSON
 - **🤖 AI Receipt Scanner** — Upload a receipt image and auto-extract items (demo mode)
-- **🌐 Bilingual** — English & 中文 (Chinese) support
+- **✅ Settle Tracking** — Click any expense to mark it as settled; settled bills are excluded from the settlement plan
+- **📱 Mobile-First Design** — Bottom tab navigation, bottom sheets, collapsible cards, touch-optimized
+- **📸 Receipt Scanner** — Take a photo + manually enter items alongside the photo (auto-resized for performance)
+- **🌐 Bilingual** — English & 中文 (Chinese) support, persists your language preference
 - **💾 Local Storage** — All data stays in your browser, never uploaded anywhere
 - **🎨 Beautiful UI** — Modern gradient design, responsive on all devices
 - **🗑 Clear Data** — One-click reset

@@ -2,8 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bill Dealer - Smart Bill Splitting</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#6366f1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Bill Dealer</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -13,69 +16,31 @@
             <h1>🧾 Bill Dealer</h1>
             <p class="subtitle">Smart bill splitting for groups & trips</p>
             <div class="header-actions">
-                <button id="langToggle" class="btn btn-sm btn-ghost" title="Switch Language">中文 ↓</button>
-                <button id="exportBtn" class="btn btn-sm btn-ghost" title="Export Backup">📤 Export</button>
-                <button id="importBtn" class="btn btn-sm btn-ghost" title="Import Backup">📥 Import</button>
-                <button id="clearBtn" class="btn btn-sm btn-danger-ghost" title="Clear All Data">🗑 Clear</button>
+                <button id="langToggle" class="btn btn-sm btn-ghost">中文</button>
+                <button id="exportBtn" class="btn btn-sm btn-ghost">📤</button>
+                <button id="importBtn" class="btn btn-sm btn-ghost">📥</button>
+                <button id="clearBtn" class="btn btn-sm btn-danger-ghost">🗑</button>
             </div>
         </header>
 
-        <!-- Section 1: Trip Settings -->
-        <section class="card" id="settingsSection">
-            <h2 class="section-title">⚙️ Trip Settings</h2>
-            <div class="settings-row">
-                <div class="form-group">
-                    <label for="baseCurrency">Base Currency</label>
-                    <select id="baseCurrency" class="select-input">
-                        <option value="USD">🇺🇸 USD - US Dollar</option>
-                        <option value="EUR">🇪🇺 EUR - Euro</option>
-                        <option value="GBP">🇬🇧 GBP - British Pound</option>
-                        <option value="JPY">🇯🇵 JPY - Japanese Yen</option>
-                        <option value="CNY">🇨🇳 CNY - Chinese Yuan</option>
-                        <option value="KRW">🇰🇷 KRW - Korean Won</option>
-                        <option value="TWD">🇹🇼 TWD - Taiwan Dollar</option>
-                        <option value="HKD">🇭🇰 HKD - Hong Kong Dollar</option>
-                        <option value="SGD">🇸🇬 SGD - Singapore Dollar</option>
-                        <option value="THB">🇹🇭 THB - Thai Baht</option>
-                        <option value="INR">🇮🇳 INR - Indian Rupee</option>
-                        <option value="AUD">🇦🇺 AUD - Australian Dollar</option>
-                        <option value="CAD">🇨🇦 CAD - Canadian Dollar</option>
-                    </select>
-                </div>
-            </div>
-            <div class="members-area">
-                <div class="members-header">
-                    <h3>👥 Members</h3>
-                    <div class="add-member-row">
-                        <input type="text" id="memberNameInput" class="text-input" placeholder="Member name" maxlength="30">
-                        <button id="addMemberBtn" class="btn btn-primary">+ Add</button>
-                    </div>
-                </div>
-                <div id="membersList" class="members-list">
-                    <p class="empty-hint">No members added yet</p>
-                </div>
-            </div>
-        </section>
+        <!-- Tabs for Mobile -->
+        <nav class="tab-nav" id="tabNav">
+            <button class="tab-btn active" data-tab="settings">⚙️<span>Settings</span></button>
+            <button class="tab-btn" data-tab="expenses">💸<span>Expenses</span></button>
+            <button class="tab-btn" data-tab="settlement">💰<span>Settle</span></button>
+        </nav>
 
-        <!-- Section 2: Quick Expense Entry -->
-        <section class="card" id="expenseSection">
-            <h2 class="section-title">💸 Add Expense</h2>
-            <div id="noMembersWarning" class="warning-banner">
-                ⚠️ Please add members in "Trip Settings" first
-            </div>
-            <form id="expenseForm" class="expense-form">
-                <div class="form-row">
-                    <div class="form-group flex-2">
-                        <label for="expenseDesc">Description</label>
-                        <input type="text" id="expenseDesc" class="text-input" placeholder="e.g., Dinner, Taxi, Hotel..." maxlength="100" required>
-                    </div>
-                    <div class="form-group flex-1">
-                        <label for="expenseAmount">Amount</label>
-                        <input type="number" id="expenseAmount" class="text-input" placeholder="0.00" min="0.01" step="0.01" required>
-                    </div>
-                    <div class="form-group flex-1">
-                        <label for="expenseCurrency">Currency</label>
-                        <select id="expenseCurrency" class="select-input">
+        <!-- Tab: Settings -->
+        <section class="tab-panel active" id="panel-settings">
+            <div class="card">
+                <div class="card-header collapsible" data-target="settingsBody">
+                    <h2 class="section-title"><span class="title-text">⚙️ Trip Settings</span></h2>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="card-body" id="settingsBody">
+                    <div class="form-group">
+                        <label for="baseCurrency">Base Currency</label>
+                        <select id="baseCurrency" class="select-input">
                             <option value="USD">🇺🇸 USD</option>
                             <option value="EUR">🇪🇺 EUR</option>
                             <option value="GBP">🇬🇧 GBP</option>
@@ -91,84 +56,162 @@
                             <option value="CAD">🇨🇦 CAD</option>
                         </select>
                     </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group flex-1">
-                        <label for="payerSelect">Paid By</label>
-                        <select id="payerSelect" class="select-input" required>
-                            <option value="">-- Select --</option>
-                        </select>
-                    </div>
-                    <div class="form-group flex-1">
-                        <label>Split Method</label>
-                        <div class="split-methods">
-                            <label class="radio-label">
-                                <input type="radio" name="splitMethod" value="equal" checked> Equal
-                            </label>
-                            <label class="radio-label">
-                                <input type="radio" name="splitMethod" value="custom"> Custom
-                            </label>
+                    <div class="members-area">
+                        <label>👥 Members</label>
+                        <div class="add-member-row">
+                            <input type="text" id="memberNameInput" class="text-input" placeholder="Member name" maxlength="30" autocomplete="off">
+                            <button id="addMemberBtn" class="btn btn-primary">+ Add</button>
+                        </div>
+                        <div id="membersList" class="members-list">
+                            <p class="empty-hint">No members added yet</p>
                         </div>
                     </div>
                 </div>
-                <div class="form-group">
-                    <label>Split Among</label>
-                    <div id="participantsCheckboxes" class="checkboxes-grid">
-                        <p class="empty-hint">Add members first</p>
-                    </div>
-                </div>
-                <div id="customSplitArea" class="custom-split-area hidden">
-                    <label>Custom Split Amounts</label>
-                    <div id="customSplitInputs"></div>
-                </div>
-                <button type="submit" id="addExpenseBtn" class="btn btn-primary btn-lg" disabled>➕ Add Expense</button>
-            </form>
-            <div id="expensesList" class="expenses-list">
-                <p class="empty-hint">No expenses yet — add one above!</p>
             </div>
         </section>
 
-        <!-- Section 3: Settlement Plan -->
-        <section class="card" id="settlementSection">
-            <h2 class="section-title">💰 Settlement Plan</h2>
-            <div id="settlementContent">
-                <p class="empty-hint">No expenses to settle yet</p>
+        <!-- Tab: Expenses -->
+        <section class="tab-panel" id="panel-expenses">
+            <!-- Add Expense Card -->
+            <div class="card">
+                <div class="card-header collapsible" data-target="expenseFormBody">
+                    <h2 class="section-title"><span class="title-text">💸 Add Expense</span></h2>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="card-body" id="expenseFormBody">
+                    <div id="noMembersWarning" class="warning-banner hidden">
+                        ⚠️ Please add members in Settings first
+                    </div>
+                    <form id="expenseForm" class="expense-form">
+                        <div class="form-group">
+                            <label for="expenseDesc">Description</label>
+                            <input type="text" id="expenseDesc" class="text-input" placeholder="e.g., Dinner, Taxi, Hotel..." maxlength="100" required autocomplete="off">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group flex-1">
+                                <label for="expenseAmount">Amount</label>
+                                <input type="number" id="expenseAmount" class="text-input" placeholder="0.00" min="0.01" step="0.01" required inputmode="decimal">
+                            </div>
+                            <div class="form-group flex-1">
+                                <label for="expenseCurrency">Currency</label>
+                                <select id="expenseCurrency" class="select-input">
+                                    <option value="USD">🇺🇸 USD</option><option value="EUR">🇪🇺 EUR</option>
+                                    <option value="GBP">🇬🇧 GBP</option><option value="JPY">🇯🇵 JPY</option>
+                                    <option value="CNY">🇨🇳 CNY</option><option value="KRW">🇰🇷 KRW</option>
+                                    <option value="TWD">🇹🇼 TWD</option><option value="HKD">🇭🇰 HKD</option>
+                                    <option value="SGD">🇸🇬 SGD</option><option value="THB">🇹🇭 THB</option>
+                                    <option value="INR">🇮🇳 INR</option><option value="AUD">🇦🇺 AUD</option>
+                                    <option value="CAD">🇨🇦 CAD</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group flex-1">
+                                <label for="payerSelect">Paid By</label>
+                                <select id="payerSelect" class="select-input" required>
+                                    <option value="">-- Select --</option>
+                                </select>
+                            </div>
+                            <div class="form-group flex-1">
+                                <label>Split</label>
+                                <div class="split-methods">
+                                    <button type="button" class="split-btn active" data-method="equal">＝ Equal</button>
+                                    <button type="button" class="split-btn" data-method="custom">⚖ Custom</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Split Among</label>
+                            <div id="participantsCheckboxes" class="checkboxes-grid">
+                                <p class="empty-hint">Add members first</p>
+                            </div>
+                        </div>
+                        <div id="customSplitArea" class="custom-split-area hidden">
+                            <label>Custom Split Amounts</label>
+                            <div id="customSplitInputs"></div>
+                        </div>
+                        <button type="submit" id="addExpenseBtn" class="btn btn-primary btn-lg" disabled>➕ Add Expense</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Expenses List Card -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="section-title"><span class="title-text">📋 All Expenses</span> <span id="expenseCount" class="badge">0</span></h2>
+                    <button id="scanReceiptBtn" class="btn btn-sm btn-ghost">📸 Scan</button>
+                </div>
+                <div class="card-body">
+                    <div id="expensesList" class="expenses-list">
+                        <p class="empty-hint">No expenses yet — add one above!</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tab: Settlement -->
+        <section class="tab-panel" id="panel-settlement">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="section-title"><span class="title-text">💰 Settlement Plan</span></h2>
+                    <span id="unsettledCount" class="badge badge-warning">0</span>
+                </div>
+                <div class="card-body">
+                    <div id="settlementContent">
+                        <p class="empty-hint">No unsettled expenses yet</p>
+                    </div>
+                </div>
             </div>
         </section>
 
         <!-- Footer -->
         <footer class="app-footer">
-            <p>💾 Data stored locally in your browser · Never uploaded to any server</p>
+            <p>💾 Data stored locally · Never uploaded</p>
         </footer>
 
         <!-- Hidden file input for import -->
         <input type="file" id="importFileInput" accept=".json" class="hidden">
 
-        <!-- Toast notification -->
+        <!-- Toast -->
         <div id="toast" class="toast hidden"></div>
 
-        <!-- AI Receipt Scanner Modal -->
-        <div id="aiModal" class="modal-overlay hidden">
-            <div class="modal">
+        <!-- Receipt Scanner Modal (Bottom Sheet on mobile) -->
+        <div id="receiptModal" class="modal-overlay hidden">
+            <div class="modal modal-bottom-sheet">
+                <div class="modal-handle"></div>
                 <div class="modal-header">
-                    <h3>🤖 AI Receipt Scanner</h3>
-                    <button class="modal-close" id="closeAiModal">&times;</button>
+                    <h3>📸 Receipt Scanner</h3>
+                    <button class="modal-close" id="closeReceiptModal">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <p class="modal-desc">Upload a receipt photo and let AI extract the items and amounts automatically.</p>
+                    <p class="modal-desc">Upload a receipt photo, then manually enter items while viewing the photo. More reliable than AI-only scanning.</p>
                     <div class="upload-area" id="uploadArea">
                         <div class="upload-placeholder">
-                            <span class="upload-icon">📸</span>
-                            <p>Click or drag receipt image here</p>
-                            <p class="upload-hint">Supports JPG, PNG, WEBP</p>
+                            <span class="upload-icon">📷</span>
+                            <p>Tap to take photo or upload</p>
+                            <p class="upload-hint">JPG, PNG, HEIC supported · Auto-resized</p>
                         </div>
-                        <input type="file" id="receiptImageInput" accept="image/*" class="hidden">
-                        <img id="receiptPreview" class="receipt-preview hidden" alt="Receipt preview">
+                        <input type="file" id="receiptImageInput" accept="image/*" capture="environment" class="hidden">
                     </div>
-                    <div id="aiResult" class="ai-result hidden"></div>
-                    <div class="modal-actions">
-                        <button id="scanReceiptBtn" class="btn btn-primary" disabled>🔍 Scan Receipt</button>
-                        <button id="addScannedItemsBtn" class="btn btn-success hidden">✅ Add to Expenses</button>
+                    <div class="receipt-preview-wrapper hidden" id="receiptPreviewWrapper">
+                        <img id="receiptPreview" class="receipt-preview" alt="Receipt">
+                        <button id="retakePhotoBtn" class="btn btn-xs btn-ghost">↺ Retake</button>
+                    </div>
+                    <div id="manualEntrySection" class="manual-entry hidden">
+                        <h4>📝 Enter Items from Receipt</h4>
+                        <div id="manualItems"></div>
+                        <button id="addItemRowBtn" class="btn btn-sm btn-ghost">+ Add Item</button>
+                        <div class="manual-total">
+                            <span>Total from items:</span>
+                            <strong id="manualTotal">$0.00</strong>
+                        </div>
+                        <div class="form-group">
+                            <label>Paid By</label>
+                            <select id="receiptPayerSelect" class="select-input">
+                                <option value="">-- Select --</option>
+                            </select>
+                        </div>
+                        <button id="addReceiptItemsBtn" class="btn btn-success btn-lg">✅ Add All Items as Expenses</button>
                     </div>
                 </div>
             </div>

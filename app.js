@@ -1,16 +1,18 @@
 /* ============================================
-   Bill Dealer - Application Logic
+   Bill Dealer - Application Logic v2
+   Mobile-first, settled expenses, receipt scanner
    ============================================ */
 
 // ─── State ───────────────────────────────────
 const state = {
     members: [],
-    expenses: [],
+    expenses: [],       // { id, desc, amount, currency, payer, splitMethod, participants, customShares?, settled }
     baseCurrency: 'USD',
-    lang: 'en'
+    lang: 'en',
+    activeTab: 'expenses'
 };
 
-// ─── Currency Symbols ───────────────────────
+// ─── Currency Data ───────────────────────────
 const currencySymbols = {
     USD: '$', EUR: '€', GBP: '£', JPY: '¥', CNY: '¥',
     KRW: '₩', TWD: 'NT$', HKD: 'HK$', SGD: 'S$', THB: '฿',
@@ -28,6 +30,9 @@ const t = {
     en: {
         title: '🧾 Bill Dealer',
         subtitle: 'Smart bill splitting for groups & trips',
+        settingsTab: 'Settings',
+        expensesTab: 'Expenses',
+        settleTab: 'Settle',
         settings: '⚙️ Trip Settings',
         baseCurrency: 'Base Currency',
         members: '👥 Members',
@@ -35,13 +40,14 @@ const t = {
         memberPlaceholder: 'Member name',
         noMembers: 'No members added yet',
         addExpense: '💸 Add Expense',
-        warningNoMembers: '⚠️ Please add members in "Trip Settings" first',
+        allExpenses: '📋 All Expenses',
+        warningNoMembers: '⚠️ Please add members in Settings first',
         desc: 'Description',
         descPlaceholder: 'e.g., Dinner, Taxi, Hotel...',
         amount: 'Amount',
         currency: 'Currency',
         paidBy: 'Paid By',
-        splitMethod: 'Split Method',
+        splitMethod: 'Split',
         equal: 'Equal',
         custom: 'Custom',
         splitAmong: 'Split Among',
@@ -49,41 +55,53 @@ const t = {
         addExpenseBtn: '➕ Add Expense',
         noExpenses: 'No expenses yet — add one above!',
         settlement: '💰 Settlement Plan',
-        noSettlement: 'No expenses to settle yet',
-        footer: '💾 Data stored locally in your browser · Never uploaded to any server',
-        export: '📤 Export',
-        import: '📥 Import',
-        clear: '🗑 Clear',
-        langSwitch: '中文 ↓',
+        noSettlement: 'No unsettled expenses yet',
+        allSettled: '🎉 All settled! No debts.',
+        footer: '💾 Data stored locally · Never uploaded',
+        export: '📤',
+        import: '📥',
+        clear: '🗑',
+        langSwitch: '中文',
         remaining: 'Remaining:',
         over: 'Over by:',
-        totalPaid: 'Total Paid',
-        totalOwed: 'Total Owed',
-        balance: 'Balance',
         pays: 'pays',
         to: 'to',
-        allSettled: '🎉 All settled! No debts.',
         delete: '×',
-        confirmClear: 'Are you sure you want to clear ALL data? This cannot be undone.',
-        exported: 'Data exported successfully!',
-        imported: 'Data imported successfully!',
+        confirmClear: 'Clear ALL data? This cannot be undone.',
+        exported: 'Data exported!',
+        imported: 'Data imported!',
         cleared: 'All data cleared.',
         memberAdded: 'Member added!',
         memberRemoved: 'Member removed.',
         expenseAdded: 'Expense added!',
         expenseDeleted: 'Expense deleted.',
+        expenseSettled: 'Marked as settled ✓',
+        expenseUnsettled: 'Marked as unsettled',
         selectPayer: '-- Select --',
-        aiScanner: '🤖 AI Receipt Scanner',
-        aiDesc: 'Upload a receipt photo and let AI extract the items and amounts automatically.',
-        uploadHint: 'Click or drag receipt image here',
-        uploadFormat: 'Supports JPG, PNG, WEBP',
-        scan: '🔍 Scan Receipt',
-        addScanned: '✅ Add to Expenses',
+        scanReceipt: '📸 Scan',
+        receiptTitle: '📸 Receipt Scanner',
+        receiptDesc: 'Take a photo of your receipt, then manually enter each item. More reliable than AI-only scanning.',
+        uploadHint: 'Tap to take photo or upload',
+        uploadFormat: 'JPG, PNG, HEIC · Auto-resized',
+        retake: '↺ Retake',
+        enterItems: '📝 Enter Items from Receipt',
+        addItemRow: '+ Add Item',
+        totalFromItems: 'Total from items:',
+        addReceiptItems: '✅ Add All Items as Expenses',
+        itemDesc: 'Item',
+        itemAmount: 'Amount',
+        receiptPaidBy: 'Paid By',
         selectMembers: 'Add members first',
+        unsettled: 'unsettled',
+        scan: '📸 Scan',
+        settings: '⚙️ Settings',
     },
     zh: {
         title: '🧾 账单分摊',
         subtitle: '旅途多人多货币智能记账',
+        settingsTab: '设置',
+        expensesTab: '账单',
+        settleTab: '结算',
         settings: '⚙️ 旅程设置',
         baseCurrency: '本币',
         members: '👥 成员',
@@ -91,13 +109,14 @@ const t = {
         memberPlaceholder: '成员名称',
         noMembers: '还没有添加成员',
         addExpense: '💸 快速记账',
-        warningNoMembers: '⚠️ 请先在「旅程设置」中添加成员',
+        allExpenses: '📋 全部账单',
+        warningNoMembers: '⚠️ 请先在设置中添加成员',
         desc: '描述',
         descPlaceholder: '例如：晚餐、出租车、酒店...',
         amount: '金额',
         currency: '货币',
         paidBy: '付款人',
-        splitMethod: '分摊方式',
+        splitMethod: '分摊',
         equal: '均分',
         custom: '自定义',
         splitAmong: '分摊对象',
@@ -105,37 +124,46 @@ const t = {
         addExpenseBtn: '➕ 添加账单',
         noExpenses: '还没有账单，记一笔吧',
         settlement: '💰 结算方案',
-        noSettlement: '还没有账单，记一笔吧',
+        noSettlement: '没有待结算的账单',
+        allSettled: '🎉 已全部结清！没有欠款。',
         footer: '💾 数据存储在浏览器本地 · 不会上传到任何服务器',
-        export: '📤 导出备份',
-        import: '📥 导入备份',
-        clear: '🗑 清空数据',
-        langSwitch: 'English ↓',
+        export: '📤',
+        import: '📥',
+        clear: '🗑',
+        langSwitch: 'EN',
         remaining: '剩余：',
         over: '超出：',
-        totalPaid: '总支付',
-        totalOwed: '总应付',
-        balance: '余额',
         pays: '支付',
         to: '给',
-        allSettled: '🎉 已全部结清！没有欠款。',
         delete: '×',
         confirmClear: '确定要清空所有数据吗？此操作无法撤销。',
-        exported: '数据导出成功！',
-        imported: '数据导入成功！',
+        exported: '数据已导出！',
+        imported: '数据已导入！',
         cleared: '数据已清空。',
         memberAdded: '成员已添加！',
         memberRemoved: '成员已移除。',
         expenseAdded: '账单已添加！',
         expenseDeleted: '账单已删除。',
+        expenseSettled: '已标记为结清 ✓',
+        expenseUnsettled: '已取消结清标记',
         selectPayer: '-- 选择 --',
-        aiScanner: '🤖 AI 拍照智能拆单',
-        aiDesc: '上传收据照片，AI 自动提取项目和金额。',
-        uploadHint: '点击或拖拽收据图片',
-        uploadFormat: '支持 JPG、PNG、WEBP',
-        scan: '🔍 扫描收据',
-        addScanned: '✅ 添加到账单',
+        scanReceipt: '📸 扫描',
+        receiptTitle: '📸 收据扫描',
+        receiptDesc: '拍摄收据照片，然后手动输入每项。比纯 AI 扫描更可靠。',
+        uploadHint: '点击拍照或上传',
+        uploadFormat: '支持 JPG、PNG、HEIC · 自动压缩',
+        retake: '↺ 重拍',
+        enterItems: '📝 输入收据项目',
+        addItemRow: '+ 添加项目',
+        totalFromItems: '项目合计：',
+        addReceiptItems: '✅ 添加全部项目为账单',
+        itemDesc: '项目',
+        itemAmount: '金额',
+        receiptPaidBy: '付款人',
         selectMembers: '请先添加成员',
+        unsettled: '待结算',
+        scan: '📸 扫描',
+        settings: '⚙️ 设置',
     }
 };
 
@@ -143,13 +171,13 @@ function _(key) {
     return t[state.lang][key] || t['en'][key] || key;
 }
 
-// ─── DOM References ──────────────────────────
+// ─── DOM ─────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
 // ─── Persistence ─────────────────────────────
 function saveState() {
-    localStorage.setItem('bill-dealer-data', JSON.stringify({
+    localStorage.setItem('bill-dealer-v2', JSON.stringify({
         members: state.members,
         expenses: state.expenses,
         baseCurrency: state.baseCurrency,
@@ -158,17 +186,17 @@ function saveState() {
 }
 
 function loadState() {
-    const raw = localStorage.getItem('bill-dealer-data');
+    // Try v2 first, then v1
+    let raw = localStorage.getItem('bill-dealer-v2');
+    if (!raw) raw = localStorage.getItem('bill-dealer-data');
     if (raw) {
         try {
             const data = JSON.parse(raw);
             state.members = data.members || [];
-            state.expenses = data.expenses || [];
+            state.expenses = (data.expenses || []).map(e => ({ ...e, settled: e.settled || false }));
             state.baseCurrency = data.baseCurrency || 'USD';
             state.lang = data.lang || 'en';
-        } catch (e) {
-            console.error('Failed to parse saved data:', e);
-        }
+        } catch (e) { console.error('Parse error:', e); }
     }
 }
 
@@ -179,36 +207,45 @@ function showToast(message, type = 'info') {
     toast.textContent = message;
     toast.className = `toast ${type}`;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.add('hidden'), 2500);
+    toastTimer = setTimeout(() => toast.classList.add('hidden'), 2000);
 }
 
-// ─── Currency Helpers ────────────────────────
+// ─── Helpers ─────────────────────────────────
 function formatCurrency(amount, currency) {
     const sym = currencySymbols[currency] || '';
-    if (currency === 'JPY' || currency === 'KRW') {
-        return `${sym}${Math.round(amount).toLocaleString()}`;
-    }
+    if (currency === 'JPY' || currency === 'KRW') return `${sym}${Math.round(amount).toLocaleString()}`;
     return `${sym}${amount.toFixed(2)}`;
 }
 
-function getFlag(currency) {
-    return currencyFlags[currency] || '';
+function getFlag(c) { return currencyFlags[c] || ''; }
+function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+const memberColors = ['#6366f1','#8b5cf6','#ec4899','#f43f5e','#f97316','#eab308','#22c55e','#14b8a6','#06b6d4','#3b82f6'];
+function getMemberColor(i) { return memberColors[i % memberColors.length]; }
+function getMemberInitial(n) { return n.charAt(0).toUpperCase(); }
+
+// ─── Tab Navigation ──────────────────────────
+function switchTab(tabName) {
+    state.activeTab = tabName;
+    $$('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
+    $$('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${tabName}`));
 }
 
-// ─── Member Colors ───────────────────────────
-const memberColors = [
-    '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e',
-    '#f97316', '#eab308', '#22c55e', '#14b8a6',
-    '#06b6d4', '#3b82f6'
-];
+$$('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
 
-function getMemberColor(index) {
-    return memberColors[index % memberColors.length];
-}
-
-function getMemberInitial(name) {
-    return name.charAt(0).toUpperCase();
-}
+// ─── Collapsible Cards ───────────────────────
+document.addEventListener('click', (e) => {
+    const header = e.target.closest('.card-header.collapsible');
+    if (!header) return;
+    const targetId = header.dataset.target;
+    const body = document.getElementById(targetId);
+    if (!body) return;
+    const isHidden = body.classList.contains('hidden');
+    body.classList.toggle('hidden');
+    header.classList.toggle('collapsed', !isHidden);
+});
 
 // ─── Render All ──────────────────────────────
 function renderAll() {
@@ -218,11 +255,12 @@ function renderAll() {
     renderCustomSplit();
     renderExpenses();
     renderSettlement();
+    updateCounts();
     updateExpenseFormState();
     saveState();
 }
 
-// ─── Render Members ──────────────────────────
+// ─── Members ─────────────────────────────────
 function renderMembers() {
     const container = $('#membersList');
     if (state.members.length === 0) {
@@ -233,84 +271,126 @@ function renderMembers() {
         <span class="member-tag">
             <span class="member-avatar" style="background:${getMemberColor(i)}">${getMemberInitial(m)}</span>
             ${escapeHtml(m)}
-            <span class="remove-member" data-index="${i}" title="${_('delete')}">×</span>
+            <span class="remove-member" data-index="${i}">×</span>
         </span>
     `).join('');
 }
 
-// ─── Render Payer Select ─────────────────────
+$('#membersList').addEventListener('click', (e) => {
+    if (e.target.classList.contains('remove-member')) {
+        const idx = parseInt(e.target.dataset.index);
+        const name = state.members[idx];
+        state.expenses = state.expenses.filter(exp => {
+            if (exp.payer === name) return false;
+            exp.participants = exp.participants.filter(p => p !== name);
+            if (exp.customShares) delete exp.customShares[name];
+            return exp.participants.length > 0;
+        });
+        state.members.splice(idx, 1);
+        renderAll();
+        showToast(_('memberRemoved'), 'info');
+    }
+});
+
+// ─── Payer Select ────────────────────────────
 function renderPayerSelect() {
-    const select = $('#payerSelect');
-    select.innerHTML = `<option value="">${_('selectPayer')}</option>` +
+    const sel = $('#payerSelect');
+    sel.innerHTML = `<option value="">${_('selectPayer')}</option>` +
         state.members.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+
+    // Also update receipt payer select
+    const rSel = $('#receiptPayerSelect');
+    if (rSel) {
+        rSel.innerHTML = `<option value="">${_('selectPayer')}</option>` +
+            state.members.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+    }
 }
 
-// ─── Render Participants ─────────────────────
+// ─── Participants ────────────────────────────
 function renderParticipants() {
-    const container = $('#participantsCheckboxes');
+    const c = $('#participantsCheckboxes');
     if (state.members.length === 0) {
-        container.innerHTML = `<p class="empty-hint">${_('selectMembers')}</p>`;
+        c.innerHTML = `<p class="empty-hint">${_('selectMembers')}</p>`;
         return;
     }
-    container.innerHTML = state.members.map((m, i) => `
+    c.innerHTML = state.members.map((m, i) => `
         <label class="checkbox-tag checked" data-member="${escapeHtml(m)}">
             <input type="checkbox" value="${escapeHtml(m)}" checked>
-            <span class="member-avatar" style="background:${getMemberColor(i)};width:22px;height:22px;font-size:0.7rem;">${getMemberInitial(m)}</span>
+            <span class="member-avatar" style="background:${getMemberColor(i)};width:22px;height:22px;font-size:0.65rem;">${getMemberInitial(m)}</span>
             ${escapeHtml(m)}
         </label>
     `).join('');
 
-    // Toggle checkbox-tag visual
-    container.querySelectorAll('.checkbox-tag').forEach(tag => {
+    c.querySelectorAll('.checkbox-tag').forEach(tag => {
         tag.addEventListener('click', function(e) {
             if (e.target.tagName === 'INPUT') return;
             const cb = this.querySelector('input');
             cb.checked = !cb.checked;
             this.classList.toggle('checked', cb.checked);
-            if ($('input[name="splitMethod"]:checked').value === 'custom') {
-                renderCustomSplit();
-            }
+            if (getCurrentSplitMethod() === 'custom') renderCustomSplit();
         });
-        const cb = tag.querySelector('input');
-        cb.addEventListener('change', () => {
-            tag.classList.toggle('checked', cb.checked);
-            if ($('input[name="splitMethod"]:checked').value === 'custom') {
-                renderCustomSplit();
-            }
+        tag.querySelector('input').addEventListener('change', function() {
+            tag.classList.toggle('checked', this.checked);
+            if (getCurrentSplitMethod() === 'custom') renderCustomSplit();
         });
     });
 }
 
-// ─── Render Custom Split ─────────────────────
+function getCheckedParticipants() {
+    return Array.from($$('#participantsCheckboxes input[type="checkbox"]:checked')).map(cb => cb.value);
+}
+
+function getCurrentSplitMethod() {
+    const active = $('.split-btn.active');
+    return active ? active.dataset.method : 'equal';
+}
+
+// ─── Split Method Buttons ────────────────────
+$$('.split-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        $$('.split-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        updateExpenseFormState();
+    });
+});
+
+// ─── Custom Split ────────────────────────────
 function renderCustomSplit() {
     const container = $('#customSplitInputs');
     const checked = getCheckedParticipants();
     const totalAmount = parseFloat($('#expenseAmount').value) || 0;
 
-    if (checked.length === 0) {
-        container.innerHTML = '';
-        updateRemainingDisplay(0, 0);
-        return;
-    }
+    if (checked.length === 0) { container.innerHTML = ''; return; }
 
-    container.innerHTML = checked.map((m, i) => {
-        const memberIdx = state.members.indexOf(m);
+    container.innerHTML = checked.map(m => {
+        const idx = state.members.indexOf(m);
         return `
             <div class="custom-split-row">
                 <span class="member-label">
-                    <span class="member-avatar" style="background:${getMemberColor(memberIdx)};width:22px;height:22px;font-size:0.7rem;">${getMemberInitial(m)}</span>
+                    <span class="member-avatar" style="background:${getMemberColor(idx)};width:22px;height:22px;font-size:0.65rem;">${getMemberInitial(m)}</span>
                     ${escapeHtml(m)}
                 </span>
                 <input type="number" class="custom-split-input" data-member="${escapeHtml(m)}"
-                       placeholder="0.00" min="0" step="0.01" value="">
-            </div>
-        `;
+                       placeholder="0.00" min="0" step="0.01" inputmode="decimal">
+            </div>`;
     }).join('');
 
-    updateRemainingDisplay(totalAmount, 0);
+    updateCustomRemaining(totalAmount, 0);
 }
 
-function updateRemainingDisplay(total, sumCustom) {
+$('#customSplitInputs').addEventListener('input', (e) => {
+    if (e.target.classList.contains('custom-split-input')) {
+        let sum = 0;
+        $$('.custom-split-input').forEach(inp => sum += parseFloat(inp.value) || 0);
+        updateCustomRemaining(parseFloat($('#expenseAmount').value) || 0, sum);
+    }
+});
+
+$('#expenseAmount').addEventListener('input', () => {
+    if (getCurrentSplitMethod() === 'custom') renderCustomSplit();
+});
+
+function updateCustomRemaining(total, sum) {
     let el = $('#customSplitRemaining');
     if (!el) {
         el = document.createElement('div');
@@ -318,50 +398,29 @@ function updateRemainingDisplay(total, sumCustom) {
         el.className = 'custom-split-remaining';
         $('#customSplitInputs').appendChild(el);
     }
-    const remaining = total - sumCustom;
-    if (total <= 0) {
-        el.textContent = '';
-    } else if (remaining >= -0.01) {
-        el.textContent = `${_('remaining')} ${formatCurrency(Math.max(0, remaining), $('#expenseCurrency').value)}`;
+    if (total <= 0) { el.textContent = ''; return; }
+    const diff = total - sum;
+    if (diff >= -0.005) {
+        el.textContent = `${_('remaining')} ${formatCurrency(Math.max(0, diff), $('#expenseCurrency').value)}`;
         el.className = 'custom-split-remaining';
     } else {
-        el.textContent = `${_('over')} ${formatCurrency(Math.abs(remaining), $('#expenseCurrency').value)}`;
+        el.textContent = `${_('over')} ${formatCurrency(Math.abs(diff), $('#expenseCurrency').value)}`;
         el.className = 'custom-split-remaining over';
     }
 }
 
-function getCheckedParticipants() {
-    return Array.from($$('#participantsCheckboxes input[type="checkbox"]:checked'))
-        .map(cb => cb.value);
-}
-
-// ─── Update Form State ───────────────────────
+// ─── Form State ──────────────────────────────
 function updateExpenseFormState() {
     const hasMembers = state.members.length > 0;
-    const noMembersWarning = $('#noMembersWarning');
-    const addBtn = $('#addExpenseBtn');
-    const form = $('#expenseForm');
+    $('#noMembersWarning').classList.toggle('hidden', hasMembers);
+    $('#addExpenseBtn').disabled = !hasMembers;
 
-    if (hasMembers) {
-        noMembersWarning.classList.add('hidden');
-        addBtn.disabled = false;
-    } else {
-        noMembersWarning.classList.remove('hidden');
-        addBtn.disabled = true;
-    }
-
-    // Handle split method toggle
-    const splitMethod = $('input[name="splitMethod"]:checked').value;
-    const customArea = $('#customSplitArea');
-    if (splitMethod === 'custom') {
-        customArea.classList.remove('hidden');
-        renderCustomSplit();
-    } else {
-        customArea.classList.add('hidden');
-    }
+    const isCustom = getCurrentSplitMethod() === 'custom';
+    $('#customSplitArea').classList.toggle('hidden', !isCustom);
+    if (isCustom) renderCustomSplit();
 }
 
-// ─── Render Expenses ─────────────────────────
+// ─── Expenses List ───────────────────────────
 function renderExpenses() {
     const container = $('#expensesList');
     if (state.expenses.length === 0) {
@@ -369,51 +428,67 @@ function renderExpenses() {
         return;
     }
     container.innerHTML = state.expenses.map((e, i) => `
-        <div class="expense-item">
+        <div class="expense-item${e.settled ? ' settled' : ''}" data-index="${i}">
+            <div class="settled-check">✓</div>
+            <div class="settled-indicator"></div>
             <div class="expense-info">
                 <div class="expense-desc">${escapeHtml(e.desc)}</div>
                 <div class="expense-meta">
-                    <span>👤 ${escapeHtml(e.payer)} paid</span>
+                    <span>👤 ${escapeHtml(e.payer)}</span>
                     <span>👥 ${e.participants.map(p => escapeHtml(p)).join(', ')}</span>
-                    <span>📐 ${e.splitMethod === 'equal' ? _('equal') : _('custom')}</span>
                 </div>
             </div>
             <span class="expense-amount">${getFlag(e.currency)} ${formatCurrency(e.amount, e.currency)}</span>
-            <span class="delete-expense" data-index="${i}" title="${_('delete')}">×</span>
+            <span class="delete-expense" data-index="${i}">×</span>
         </div>
     `).join('');
 }
 
-// ─── Settlement Algorithm ────────────────────
-function calculateSettlement() {
-    if (state.expenses.length === 0) return null;
+// Toggle settled on expense click (but not on delete button)
+$('#expensesList').addEventListener('click', (e) => {
+    // Delete button
+    if (e.target.classList.contains('delete-expense')) {
+        e.stopPropagation();
+        const idx = parseInt(e.target.dataset.index);
+        state.expenses.splice(idx, 1);
+        renderAll();
+        showToast(_('expenseDeleted'), 'info');
+        return;
+    }
 
-    // Net balance for each member (in base currency)
+    // Toggle settled on the expense item
+    const item = e.target.closest('.expense-item');
+    if (!item) return;
+    const idx = parseInt(item.dataset.index);
+    state.expenses[idx].settled = !state.expenses[idx].settled;
+    renderAll();
+    showToast(state.expenses[idx].settled ? _('expenseSettled') : _('expenseUnsettled'), 'success');
+});
+
+// ─── Settlement ──────────────────────────────
+function calculateSettlement() {
+    const unsettled = state.expenses.filter(e => !e.settled);
+    if (unsettled.length === 0) return { balances: {}, transactions: [], hasExpenses: state.expenses.length > 0 };
+
     const balances = {};
     state.members.forEach(m => { balances[m] = 0; });
 
-    state.expenses.forEach(exp => {
+    unsettled.forEach(exp => {
         const rate = getExchangeRate(exp.currency, state.baseCurrency);
         const amountBase = exp.amount * rate;
-
-        // Payer gets credited the full amount
         balances[exp.payer] = (balances[exp.payer] || 0) + amountBase;
 
-        // Each participant owes their share
         let shares;
-        if (exp.splitMethod === 'equal') {
+        if (exp.splitMethod === 'equal' || !exp.customShares) {
             const share = amountBase / exp.participants.length;
             shares = {};
             exp.participants.forEach(p => { shares[p] = share; });
         } else {
-            // Custom split
             let totalCustom = 0;
             Object.values(exp.customShares).forEach(v => totalCustom += v);
-            const customRate = totalCustom > 0 ? amountBase / totalCustom : 1;
+            const rate2 = totalCustom > 0 ? amountBase / totalCustom : 1;
             shares = {};
-            Object.entries(exp.customShares).forEach(([p, v]) => {
-                shares[p] = v * customRate;
-            });
+            Object.entries(exp.customShares).forEach(([p, v]) => { shares[p] = v * rate2; });
         }
 
         Object.entries(shares).forEach(([person, share]) => {
@@ -421,71 +496,58 @@ function calculateSettlement() {
         });
     });
 
-    // Round to 2 decimals
-    Object.keys(balances).forEach(m => {
-        balances[m] = Math.round(balances[m] * 100) / 100;
-    });
+    Object.keys(balances).forEach(m => { balances[m] = Math.round(balances[m] * 100) / 100; });
 
-    // Separate creditors and debtors
-    const creditors = []; // positive balance (to receive)
-    const debtors = [];   // negative balance (to pay)
-
+    const creditors = [], debtors = [];
     Object.entries(balances).forEach(([name, bal]) => {
         if (bal > 0.005) creditors.push({ name, amount: bal });
         else if (bal < -0.005) debtors.push({ name, amount: -bal });
     });
-
-    // Sort by amount descending
     creditors.sort((a, b) => b.amount - a.amount);
     debtors.sort((a, b) => b.amount - a.amount);
 
-    // Greedy match to minimize transactions
     const transactions = [];
     let ci = 0, di = 0;
-
     while (ci < creditors.length && di < debtors.length) {
-        const amount = Math.min(creditors[ci].amount, debtors[di].amount);
-        if (amount > 0.005) {
-            transactions.push({
-                from: debtors[di].name,
-                to: creditors[ci].name,
-                amount: Math.round(amount * 100) / 100
-            });
+        const amt = Math.min(creditors[ci].amount, debtors[di].amount);
+        if (amt > 0.005) {
+            transactions.push({ from: debtors[di].name, to: creditors[ci].name, amount: Math.round(amt * 100) / 100 });
         }
-        creditors[ci].amount -= amount;
-        debtors[di].amount -= amount;
+        creditors[ci].amount -= amt;
+        debtors[di].amount -= amt;
         if (creditors[ci].amount < 0.005) ci++;
         if (debtors[di].amount < 0.005) di++;
     }
 
-    return { balances, transactions };
+    return { balances, transactions, hasExpenses: true };
 }
 
-// ─── Exchange Rates (simplified, relative to USD) ──
 const exchangeRates = {
-    USD: 1, EUR: 0.92, GBP: 0.79, JPY: 149.5, CNY: 7.24,
-    KRW: 1325, TWD: 31.5, HKD: 7.82, SGD: 1.34, THB: 35.5,
-    INR: 83.1, AUD: 1.53, CAD: 1.36
+    USD:1, EUR:0.92, GBP:0.79, JPY:149.5, CNY:7.24,
+    KRW:1325, TWD:31.5, HKD:7.82, SGD:1.34, THB:35.5,
+    INR:83.1, AUD:1.53, CAD:1.36
 };
 
 function getExchangeRate(from, to) {
     if (from === to) return 1;
-    const fromUSD = exchangeRates[from] || 1;
-    const toUSD = exchangeRates[to] || 1;
-    return toUSD / fromUSD;
+    return (exchangeRates[to] || 1) / (exchangeRates[from] || 1);
 }
 
-// ─── Render Settlement ───────────────────────
 function renderSettlement() {
     const container = $('#settlementContent');
     const result = calculateSettlement();
 
-    if (!result) {
+    if (!result.hasExpenses) {
         container.innerHTML = `<p class="empty-hint">${_('noSettlement')}</p>`;
         return;
     }
 
     const { balances, transactions } = result;
+
+    if (Object.keys(balances).length === 0) {
+        container.innerHTML = `<div class="no-settlement">${_('allSettled')}</div>`;
+        return;
+    }
 
     let html = '<div class="settlement-summary">';
 
@@ -495,15 +557,13 @@ function renderSettlement() {
         const bal = balances[m] || 0;
         const cls = bal > 0.005 ? 'positive' : (bal < -0.005 ? 'negative' : 'zero');
         const sign = bal > 0.005 ? '+' : '';
-        html += `
-            <div class="balance-card ${cls}">
-                <div class="balance-name">
-                    <span class="member-avatar" style="background:${getMemberColor(i)};width:22px;height:22px;font-size:0.7rem;display:inline-flex;vertical-align:middle;margin-right:4px;">${getMemberInitial(m)}</span>
-                    ${escapeHtml(m)}
-                </div>
-                <div class="balance-amount">${sign}${formatCurrency(bal, state.baseCurrency)}</div>
+        html += `<div class="balance-card ${cls}">
+            <div class="balance-name">
+                <span class="member-avatar" style="background:${getMemberColor(i)};width:20px;height:20px;font-size:0.65rem;">${getMemberInitial(m)}</span>
+                ${escapeHtml(m)}
             </div>
-        `;
+            <div class="balance-amount">${sign}${formatCurrency(bal, state.baseCurrency)}</div>
+        </div>`;
     });
     html += '</div>';
 
@@ -511,16 +571,14 @@ function renderSettlement() {
     if (transactions.length === 0) {
         html += `<div class="no-settlement">${_('allSettled')}</div>`;
     } else {
-        html += '<div class="settlement-transactions"><h3>💱 Settlement Transactions</h3>';
+        html += '<div class="settlement-transactions"><h3>💱 ' + _('pays') + ' / ' + _('to') + '</h3>';
         transactions.forEach(tx => {
-            html += `
-                <div class="transaction-item">
-                    <span>${escapeHtml(tx.from)}</span>
-                    <span class="arrow">→</span>
-                    <span>${escapeHtml(tx.to)}</span>
-                    <span class="tx-amount">${formatCurrency(tx.amount, state.baseCurrency)}</span>
-                </div>
-            `;
+            html += `<div class="transaction-item">
+                <span>${escapeHtml(tx.from)}</span>
+                <span class="arrow">→</span>
+                <span>${escapeHtml(tx.to)}</span>
+                <span class="tx-amount">${formatCurrency(tx.amount, state.baseCurrency)}</span>
+            </div>`;
         });
         html += '</div>';
     }
@@ -529,24 +587,22 @@ function renderSettlement() {
     container.innerHTML = html;
 }
 
-// ─── Escape HTML ─────────────────────────────
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+// ─── Counts ──────────────────────────────────
+function updateCounts() {
+    const total = state.expenses.length;
+    const unsettled = state.expenses.filter(e => !e.settled).length;
+    const ec = $('#expenseCount');
+    const uc = $('#unsettledCount');
+    if (ec) ec.textContent = total;
+    if (uc) uc.textContent = unsettled + ' ' + _('unsettled');
 }
 
-// ─── Event Handlers ──────────────────────────
-
-// Add member
+// ─── Add Expense ─────────────────────────────
 $('#addMemberBtn').addEventListener('click', () => {
     const input = $('#memberNameInput');
     const name = input.value.trim();
     if (!name) return;
-    if (state.members.includes(name)) {
-        showToast('Member already exists!', 'error');
-        return;
-    }
+    if (state.members.includes(name)) { showToast('Already exists!', 'error'); return; }
     state.members.push(name);
     input.value = '';
     renderAll();
@@ -554,168 +610,83 @@ $('#addMemberBtn').addEventListener('click', () => {
 });
 
 $('#memberNameInput').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-        e.preventDefault();
-        $('#addMemberBtn').click();
-    }
+    if (e.key === 'Enter') { e.preventDefault(); $('#addMemberBtn').click(); }
 });
 
-// Remove member (delegated)
-$('#membersList').addEventListener('click', (e) => {
-    if (e.target.classList.contains('remove-member')) {
-        const index = parseInt(e.target.dataset.index);
-        const name = state.members[index];
-        // Remove member from expenses or update them
-        state.expenses = state.expenses.filter(exp => {
-            // If payer is removed, remove the expense
-            if (exp.payer === name) return false;
-            // Remove from participants
-            exp.participants = exp.participants.filter(p => p !== name);
-            if (exp.customShares) delete exp.customShares[name];
-            return exp.participants.length > 0;
-        });
-        state.members.splice(index, 1);
-        renderAll();
-        showToast(_('memberRemoved'), 'info');
-    }
-});
-
-// Split method toggle
-$$('input[name="splitMethod"]').forEach(radio => {
-    radio.addEventListener('change', updateExpenseFormState);
-});
-
-// Expense amount change → update custom split remaining
-$('#expenseAmount').addEventListener('input', () => {
-    if ($('input[name="splitMethod"]:checked').value === 'custom') {
-        renderCustomSplit();
-    }
-});
-
-// Custom split input change (delegated)
-$('#customSplitInputs').addEventListener('input', (e) => {
-    if (e.target.classList.contains('custom-split-input')) {
-        const inputs = $$('.custom-split-input');
-        let sum = 0;
-        inputs.forEach(inp => { sum += parseFloat(inp.value) || 0; });
-        const total = parseFloat($('#expenseAmount').value) || 0;
-        updateRemainingDisplay(total, sum);
-    }
-});
-
-// Add expense
 $('#expenseForm').addEventListener('submit', (e) => {
     e.preventDefault();
-
     const desc = $('#expenseDesc').value.trim();
     const amount = parseFloat($('#expenseAmount').value);
     const currency = $('#expenseCurrency').value;
     const payer = $('#payerSelect').value;
-    const splitMethod = $('input[name="splitMethod"]:checked').value;
+    const splitMethod = getCurrentSplitMethod();
     const participants = getCheckedParticipants();
 
-    if (!desc) { showToast('Please enter a description', 'error'); return; }
-    if (!amount || amount <= 0) { showToast('Please enter a valid amount', 'error'); return; }
-    if (!payer) { showToast('Please select who paid', 'error'); return; }
-    if (participants.length === 0) { showToast('Please select at least one participant', 'error'); return; }
+    if (!desc) { showToast('Enter a description', 'error'); return; }
+    if (!amount || amount <= 0) { showToast('Enter a valid amount', 'error'); return; }
+    if (!payer) { showToast('Select who paid', 'error'); return; }
+    if (participants.length === 0) { showToast('Select participants', 'error'); return; }
 
-    const expense = {
-        id: Date.now(),
-        desc,
-        amount,
-        currency,
-        payer,
-        splitMethod,
-        participants,
-    };
+    const expense = { id: Date.now(), desc, amount, currency, payer, splitMethod, participants, settled: false };
 
     if (splitMethod === 'custom') {
         const customShares = {};
-        const inputs = $$('.custom-split-input');
         let totalCustom = 0;
-        inputs.forEach(inp => {
-            const val = parseFloat(inp.value) || 0;
-            customShares[inp.dataset.member] = val;
-            totalCustom += val;
+        $$('.custom-split-input').forEach(inp => {
+            const v = parseFloat(inp.value) || 0;
+            customShares[inp.dataset.member] = v;
+            totalCustom += v;
         });
-        if (totalCustom <= 0) {
-            showToast('Please enter custom split amounts', 'error');
-            return;
-        }
+        if (totalCustom <= 0) { showToast('Enter custom amounts', 'error'); return; }
         expense.customShares = customShares;
     }
 
     state.expenses.push(expense);
-
-    // Reset form
     $('#expenseDesc').value = '';
     $('#expenseAmount').value = '';
-    $('#expenseForm').querySelector('input[value="equal"]').checked = true;
+    $$('.split-btn').forEach(b => b.classList.remove('active'));
+    $('.split-btn[data-method="equal"]').classList.add('active');
 
     renderAll();
+    switchTab('expenses');
     showToast(_('expenseAdded'), 'success');
 });
 
-// Delete expense (delegated)
-$('#expensesList').addEventListener('click', (e) => {
-    if (e.target.classList.contains('delete-expense')) {
-        const index = parseInt(e.target.dataset.index);
-        state.expenses.splice(index, 1);
-        renderAll();
-        showToast(_('expenseDeleted'), 'info');
-    }
-});
-
-// Export
+// ─── Export / Import / Clear ─────────────────
 $('#exportBtn').addEventListener('click', () => {
-    const data = {
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        members: state.members,
-        expenses: state.expenses,
-        baseCurrency: state.baseCurrency
-    };
+    const data = { version: 2, exportedAt: new Date().toISOString(), members: state.members, expenses: state.expenses, baseCurrency: state.baseCurrency };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `bill-dealer-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `bill-dealer-${new Date().toISOString().slice(0,10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
     showToast(_('exported'), 'success');
 });
 
-// Import
-$('#importBtn').addEventListener('click', () => {
-    $('#importFileInput').click();
-});
+$('#importBtn').addEventListener('click', () => $('#importFileInput').click());
 
 $('#importFileInput').addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (ev) => {
         try {
             const data = JSON.parse(ev.target.result);
-            if (!data.members || !data.expenses) {
-                throw new Error('Invalid backup file');
-            }
+            if (!data.members) throw new Error('Invalid');
             state.members = data.members;
-            state.expenses = data.expenses;
+            state.expenses = (data.expenses || []).map(ex => ({ ...ex, settled: ex.settled || false }));
             state.baseCurrency = data.baseCurrency || 'USD';
             $('#baseCurrency').value = state.baseCurrency;
             renderAll();
             showToast(_('imported'), 'success');
-        } catch (err) {
-            showToast('Invalid backup file format', 'error');
-        }
+        } catch (err) { showToast('Invalid file format', 'error'); }
     };
     reader.readAsText(file);
     e.target.value = '';
 });
 
-// Clear all
 $('#clearBtn').addEventListener('click', () => {
     if (confirm(_('confirmClear'))) {
         state.members = [];
@@ -727,240 +698,238 @@ $('#clearBtn').addEventListener('click', () => {
     }
 });
 
-// Base currency change
 $('#baseCurrency').addEventListener('change', () => {
     state.baseCurrency = $('#baseCurrency').value;
     renderAll();
-    saveState();
 });
 
-// Language toggle
+// ─── Language ────────────────────────────────
 $('#langToggle').addEventListener('click', () => {
     state.lang = state.lang === 'en' ? 'zh' : 'en';
-    updateLanguage();
+    updateStaticText();
     renderAll();
-    saveState();
 });
 
-function updateLanguage() {
-    document.title = _('title').replace(/[^\w\s]/g, '').trim() || 'Bill Dealer';
-    $('#langToggle').textContent = _('langSwitch');
-
-    // Update all static text
+function updateStaticText() {
     document.querySelector('.app-header h1').textContent = _('title');
     document.querySelector('.subtitle').textContent = _('subtitle');
-    $('#settingsSection .section-title').textContent = _('settings');
-    $('#settingsSection label[for="baseCurrency"]').textContent = _('baseCurrency');
-    $('#settingsSection .members-header h3').textContent = _('members');
-    $('#addMemberBtn').textContent = _('addMember');
-    $('#memberNameInput').placeholder = _('memberPlaceholder');
-    $('#expenseSection .section-title').textContent = _('addExpense');
-    $('#noMembersWarning').textContent = _('warningNoMembers');
-    $('#expenseSection label[for="expenseDesc"]').textContent = _('desc');
-    $('#expenseDesc').placeholder = _('descPlaceholder');
-    $('#expenseSection label[for="expenseAmount"]').textContent = _('amount');
-    $('#expenseSection label[for="expenseCurrency"]').textContent = _('currency');
-    $('#expenseSection label[for="payerSelect"]').textContent = _('paidBy');
-    document.querySelector('label[for="splitMethod"]')?.closest('.form-group')?.querySelector('label')?.textContent || '';
-    $('#settlementSection .section-title').textContent = _('settlement');
+    $('#langToggle').textContent = _('langSwitch');
     document.querySelector('.app-footer p').textContent = _('footer');
-    $('#exportBtn').textContent = _('export');
-    $('#importBtn').textContent = _('import');
-    $('#clearBtn').textContent = _('clear');
 
-    // Update split method labels
-    const splitLabels = $$('.radio-label');
-    if (splitLabels.length >= 1) splitLabels[0].childNodes[splitLabels[0].childNodes.length - 1].textContent = ' ' + _('equal');
-    if (splitLabels.length >= 2) splitLabels[1].childNodes[splitLabels[1].childNodes.length - 1].textContent = ' ' + _('custom');
+    // Tab buttons
+    const tabs = $$('.tab-btn span');
+    if (tabs[0]) tabs[0].textContent = _('settingsTab');
+    if (tabs[1]) tabs[1].textContent = _('expensesTab');
+    if (tabs[2]) tabs[2].textContent = _('settleTab');
 
-    // Update form group labels
-    const formGroups = $$('#expenseForm .form-group');
-    formGroups.forEach(g => {
-        const label = g.querySelector('label');
-        if (label && label.textContent.includes('Split Among')) {
-            label.textContent = _('splitAmong');
+    // Card titles — update only the .title-text span, preserving badges
+    const titleSpans = $$('.title-text');
+    titleSpans.forEach(span => {
+        const text = span.textContent;
+        if (text.includes('Settings') || text.includes('设置')) {
+            span.textContent = _('settings');
+        } else if (text.includes('Add') || text.includes('记账')) {
+            span.textContent = _('addExpense');
+        } else if (text.includes('All') || text.includes('全部')) {
+            span.textContent = _('allExpenses');
+        } else if (text.includes('Settlement') || text.includes('结算')) {
+            span.textContent = _('settlement');
         }
     });
 
-    document.querySelector('#customSplitArea > label').textContent = _('customAmounts');
+    $('#scanReceiptBtn').textContent = _('scanReceipt');
     $('#addExpenseBtn').textContent = _('addExpenseBtn');
+    $('#addMemberBtn').textContent = _('addMember');
+    $('#memberNameInput').placeholder = _('memberPlaceholder');
+    $('#expenseDesc').placeholder = _('descPlaceholder');
+
+    // Labels
+    document.querySelector('label[for="baseCurrency"]').textContent = _('baseCurrency');
+    document.querySelector('label[for="expenseDesc"]').textContent = _('desc');
+    document.querySelector('label[for="expenseAmount"]').textContent = _('amount');
+    document.querySelector('label[for="expenseCurrency"]').textContent = _('currency');
+    document.querySelector('label[for="payerSelect"]').textContent = _('paidBy');
+
+    // Split buttons
+    const sbs = $$('.split-btn');
+    if (sbs[0]) sbs[0].textContent = '＝ ' + _('equal');
+    if (sbs[1]) sbs[1].textContent = '⚖ ' + _('custom');
+
+    // Header action buttons
+    $('#exportBtn').textContent = _('export');
+    $('#importBtn').textContent = _('import');
+    $('#clearBtn').textContent = _('clear');
 }
 
-// ─── AI Receipt Scanner ──────────────────────
-// (Basic client-side OCR simulation using canvas — in production, use a real AI API)
+// ─── Receipt Scanner (Photo + Manual Entry) ──
+$('#scanReceiptBtn').addEventListener('click', openReceiptModal);
+$('#closeReceiptModal').addEventListener('click', closeReceiptModal);
+$('#receiptModal').addEventListener('click', (e) => { if (e.target === $('#receiptModal')) closeReceiptModal(); });
 
-// We'll add an AI scan button to the expense section
-const aiBtn = document.createElement('button');
-aiBtn.type = 'button';
-aiBtn.className = 'btn btn-ghost btn-sm';
-aiBtn.id = 'aiScanBtn';
-aiBtn.textContent = '🤖 AI Scan Receipt';
-aiBtn.style.marginBottom = '12px';
-$('#expenseForm').insertBefore(aiBtn, $('#expenseForm').firstChild);
+function openReceiptModal() {
+    if (state.members.length === 0) { showToast(_('selectMembers'), 'error'); return; }
+    $('#receiptModal').classList.remove('hidden');
+    resetReceiptModal();
+    renderPayerSelect();
+}
 
-$('#aiScanBtn').addEventListener('click', () => {
-    $('#aiModal').classList.remove('hidden');
-});
+function closeReceiptModal() {
+    $('#receiptModal').classList.add('hidden');
+    resetReceiptModal();
+}
 
-$('#closeAiModal').addEventListener('click', () => {
-    $('#aiModal').classList.add('hidden');
-    resetAiModal();
-});
-
-$('#aiModal').addEventListener('click', (e) => {
-    if (e.target === $('#aiModal')) {
-        $('#aiModal').classList.add('hidden');
-        resetAiModal();
-    }
-});
-
-function resetAiModal() {
-    $('#receiptPreview').classList.add('hidden');
+function resetReceiptModal() {
     $('#receiptPreview').src = '';
+    $('#receiptPreviewWrapper').classList.add('hidden');
     $('#uploadArea').querySelector('.upload-placeholder').classList.remove('hidden');
-    $('#aiResult').classList.add('hidden');
-    $('#aiResult').innerHTML = '';
-    $('#scanReceiptBtn').disabled = true;
-    $('#addScannedItemsBtn').classList.add('hidden');
+    $('#manualEntrySection').classList.add('hidden');
     $('#receiptImageInput').value = '';
+    clearManualItems();
 }
 
-// Upload area click
-$('#uploadArea').addEventListener('click', () => {
-    $('#receiptImageInput').click();
-});
-
-// Drag and drop
-$('#uploadArea').addEventListener('dragover', (e) => {
-    e.preventDefault();
-    $('#uploadArea').classList.add('dragover');
-});
-
-$('#uploadArea').addEventListener('dragleave', () => {
-    $('#uploadArea').classList.remove('dragover');
-});
-
+// Upload
+$('#uploadArea').addEventListener('click', () => $('#receiptImageInput').click());
+$('#uploadArea').addEventListener('dragover', (e) => { e.preventDefault(); $('#uploadArea').classList.add('dragover'); });
+$('#uploadArea').addEventListener('dragleave', () => $('#uploadArea').classList.remove('dragover'));
 $('#uploadArea').addEventListener('drop', (e) => {
     e.preventDefault();
     $('#uploadArea').classList.remove('dragover');
     const file = e.dataTransfer.files[0];
-    if (file && file.type.startsWith('image/')) {
-        handleReceiptImage(file);
-    }
+    if (file && file.type.startsWith('image/')) processReceiptImage(file);
 });
-
 $('#receiptImageInput').addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (file) handleReceiptImage(file);
+    if (e.target.files[0]) processReceiptImage(e.target.files[0]);
 });
 
-function handleReceiptImage(file) {
+function processReceiptImage(file) {
+    // Resize image to max 1024px wide for performance
     const reader = new FileReader();
     reader.onload = (ev) => {
-        const img = $('#receiptPreview');
+        const img = new Image();
+        img.onload = () => {
+            const maxW = 1024;
+            let w = img.width, h = img.height;
+            if (w > maxW) { h = h * (maxW / w); w = maxW; }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+
+            const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+            $('#receiptPreview').src = resizedDataUrl;
+            $('#receiptPreviewWrapper').classList.remove('hidden');
+            $('#uploadArea').querySelector('.upload-placeholder').classList.add('hidden');
+            $('#manualEntrySection').classList.remove('hidden');
+            initManualItems();
+        };
         img.src = ev.target.result;
-        img.classList.remove('hidden');
-        $('#uploadArea').querySelector('.upload-placeholder').classList.add('hidden');
-        $('#scanReceiptBtn').disabled = false;
     };
     reader.readAsDataURL(file);
 }
 
-// Scan receipt (simulated AI analysis)
-$('#scanReceiptBtn').addEventListener('click', () => {
-    const img = $('#receiptPreview');
-    if (!img.src) return;
-
-    // Simulate AI processing with a loading state
-    $('#scanReceiptBtn').textContent = '⏳ Analyzing...';
-    $('#scanReceiptBtn').disabled = true;
-
-    setTimeout(() => {
-        // Simulated AI result — in production, call a real vision API
-        const simulatedItems = generateSimulatedItems();
-        displayAiResult(simulatedItems);
-        $('#scanReceiptBtn').textContent = '🔍 Scan Receipt';
-        $('#scanReceiptBtn').disabled = false;
-    }, 1500);
+$('#retakePhotoBtn').addEventListener('click', () => {
+    $('#receiptPreview').src = '';
+    $('#receiptPreviewWrapper').classList.add('hidden');
+    $('#uploadArea').querySelector('.upload-placeholder').classList.remove('hidden');
+    $('#manualEntrySection').classList.add('hidden');
+    $('#receiptImageInput').value = '';
+    clearManualItems();
 });
 
-function generateSimulatedItems() {
-    // Generate plausible fake receipt items for demo
-    const items = [
-        { desc: 'Main Course', amount: 24.50 },
-        { desc: 'Drinks', amount: 12.00 },
-        { desc: 'Dessert', amount: 8.50 },
-        { desc: 'Service Charge', amount: 5.00 },
-    ];
-    return items;
+// Manual item entry
+function initManualItems() {
+    clearManualItems();
+    addManualItemRow();
+    addManualItemRow();
+    addManualItemRow();
 }
 
-function displayAiResult(items) {
-    const container = $('#aiResult');
-    const total = items.reduce((sum, item) => sum + item.amount, 0);
+function clearManualItems() {
+    $('#manualItems').innerHTML = '';
+    updateManualTotal();
+}
 
-    let html = '<h4>📋 Detected Items</h4>';
-    items.forEach(item => {
-        html += `
-            <div class="ai-item">
-                <span>${escapeHtml(item.desc)}</span>
-                <span><strong>${formatCurrency(item.amount, state.baseCurrency)}</strong></span>
-            </div>
-        `;
-    });
-    html += `
-        <div class="ai-item" style="font-weight:700;border-top:2px solid var(--border);padding-top:8px;margin-top:4px;">
-            <span>Total</span>
-            <span>${formatCurrency(total, state.baseCurrency)}</span>
-        </div>
+function addManualItemRow() {
+    const row = document.createElement('div');
+    row.className = 'manual-item-row';
+    row.innerHTML = `
+        <input type="text" class="text-input manual-desc" placeholder="${_('itemDesc')}" autocomplete="off">
+        <input type="number" class="text-input amount-input manual-amount" placeholder="0.00" min="0" step="0.01" inputmode="decimal">
+        <button type="button" class="remove-item-btn">×</button>
     `;
-
-    container.innerHTML = html;
-    container.classList.remove('hidden');
-    $('#addScannedItemsBtn').classList.remove('hidden');
-
-    // Store for adding
-    container._scannedItems = items;
+    row.querySelector('.remove-item-btn').addEventListener('click', () => {
+        row.remove();
+        updateManualTotal();
+        // Keep at least 1 row
+        if ($('#manualItems').children.length === 0) addManualItemRow();
+    });
+    row.querySelector('.manual-amount').addEventListener('input', updateManualTotal);
+    $('#manualItems').appendChild(row);
 }
 
-$('#addScannedItemsBtn').addEventListener('click', () => {
-    const container = $('#aiResult');
-    const items = container._scannedItems;
-    if (!items || items.length === 0) return;
+$('#addItemRowBtn').addEventListener('click', addManualItemRow);
 
-    if (state.members.length === 0) {
-        showToast(_('selectMembers'), 'error');
-        return;
-    }
+function updateManualTotal() {
+    let total = 0;
+    $$('.manual-amount').forEach(inp => { total += parseFloat(inp.value) || 0; });
+    $('#manualTotal').textContent = formatCurrency(total, state.baseCurrency);
+}
 
-    // Add each item as an expense (payer = first member by default, equal split all)
+$('#addReceiptItemsBtn').addEventListener('click', () => {
+    const payer = $('#receiptPayerSelect').value;
+    if (!payer) { showToast('Select who paid', 'error'); return; }
+
+    const items = [];
+    const rows = $$('.manual-item-row');
+    rows.forEach(row => {
+        const desc = row.querySelector('.manual-desc').value.trim();
+        const amount = parseFloat(row.querySelector('.manual-amount').value);
+        if (desc && amount > 0) items.push({ desc, amount });
+    });
+
+    if (items.length === 0) { showToast('Enter at least one item', 'error'); return; }
+
     items.forEach(item => {
         state.expenses.push({
             id: Date.now() + Math.random(),
             desc: item.desc,
             amount: item.amount,
             currency: state.baseCurrency,
-            payer: state.members[0],
+            payer,
             splitMethod: 'equal',
             participants: [...state.members],
+            settled: false
         });
     });
 
-    $('#aiModal').classList.add('hidden');
-    resetAiModal();
+    closeReceiptModal();
     renderAll();
-    showToast(`Added ${items.length} items from receipt!`, 'success');
+    switchTab('expenses');
+    showToast(`Added ${items.length} items!`, 'success');
+});
+
+// ─── Keyboard shortcut: Escape to close modal ──
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('#receiptModal').classList.contains('hidden')) {
+        closeReceiptModal();
+    }
 });
 
 // ─── Init ────────────────────────────────────
 function init() {
     loadState();
     $('#baseCurrency').value = state.baseCurrency;
-    updateLanguage();
+    updateStaticText();
     renderAll();
+
+    // On mobile, start on expenses tab; on desktop show all
+    if (window.innerWidth < 500) {
+        switchTab('expenses');
+    }
 }
 
 init();
 
-console.log('🧾 Bill Dealer ready!');
-console.log('Features: Member management, Multi-currency, Equal & Custom split, Settlement calculation, Import/Export, AI Receipt Scanner, Bilingual (EN/ZH), Local storage');
+console.log('🧾 Bill Dealer v2 ready — Mobile-first, Settle tracking, Receipt Scanner');
