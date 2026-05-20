@@ -892,12 +892,15 @@ function processReceiptImage(file) {
         const img = new Image();
         img.onerror = () => { showToast('Failed to load image', 'error'); resetUploadPlaceholder(); };
         img.onload = () => {
-            const maxW = 1024; let w = img.width, h = img.height;
-            if (w > maxW) { h = h * (maxW / w); w = maxW; }
+            // Resize: upscale small images (min 800px), downscale large ones (max 1024px)
+            const MIN_W = 800, MAX_W = 1024;
+            let w = img.width, h = img.height;
+            if (w > MAX_W) { h = h * (MAX_W / w); w = MAX_W; }
+            else if (w < MIN_W) { h = h * (MIN_W / w); w = MIN_W; }
             const canvas = document.createElement('canvas');
             canvas.width = w; canvas.height = h;
             canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-            receiptImageDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+            receiptImageDataUrl = canvas.toDataURL('image/jpeg', 0.85);
             $('#receiptPreview').src = receiptImageDataUrl;
             $('#receiptPreviewWrapper').classList.remove('hidden');
             $('#uploadArea').querySelector('.upload-placeholder').classList.add('hidden');
